@@ -53,7 +53,9 @@ const storage =
 const upload = storage
   ? multer({
       storage,
-      limits: { fileSize: 5 * 1024 * 1024 },
+      // Keep this in sync with the reverse-proxy (e.g., Nginx client_max_body_size).
+      // 10MB per file is a pragmatic default for CV/letters/photos in production.
+      limits: { fileSize: 10 * 1024 * 1024 },
       fileFilter: (req, file, cb) => {
         const fn = file.fieldname || "";
         if (isPdfField(fn)) {

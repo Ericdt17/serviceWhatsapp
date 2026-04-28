@@ -48,9 +48,9 @@ function cvUploadMiddleware(req, res, next) {
     }
     if (err instanceof multer.MulterError) {
       if (err.code === "LIMIT_FILE_SIZE") {
-        return res.status(400).json({
+        return res.status(413).json({
           success: false,
-          error: "Each file must be at most 5MB",
+          error: "Each file must be at most 10MB",
         });
       }
       return res.status(400).json({ success: false, error: err.message });
