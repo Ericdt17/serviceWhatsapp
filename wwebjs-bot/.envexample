@@ -9,7 +9,8 @@
 DB_TYPE=postgres
 DATABASE_URL=postgresql://USER:PASSWORD@HOST:5432/DATABASE_NAME
 PG_SSL=false
-# Shared core DB — set SKIP_MIGRATIONS=true so bot does not create groups/deliveries tables
+# Core mode (staging bot VPS): USE_CORE_API=true, SKIP_MIGRATIONS=true
+# See wwebjs-bot/docs/DEPLOY_STAGING.md
 SKIP_MIGRATIONS=false
 USE_CORE_API=false
 
@@ -34,11 +35,14 @@ JWT_SECRET=CHANGE_ME_TO_A_LONG_RANDOM_SECRET
 AUTH_HEADER_FALLBACK=true
 
 # ---------------------------
-# LivSight core API (gateway)
+# LivSight core API (separate core VPS — NOT the bot VPS)
 # ---------------------------
-# Staging gateway (not core-service :8085 direct)
-CORE_API_BASE_URL=http://156.67.27.35:4000
-CORE_AUTH_URL=http://156.67.27.35:4000/auth/login
+# Staging: auth + API live on core VPS behind this domain.
+# Bot VPS only calls OUT to these URLs (outbound HTTPS).
+# If POST /api/transactions fails (X-User-Id ignored), try CORE_API_BASE_URL
+# to core direct on core host, e.g. http://CORE_VPS_IP:8085 — keep auth on HTTPS domain.
+CORE_AUTH_URL=https://livsighttest.didierdjakoua.site/auth/login
+CORE_API_BASE_URL=https://livsighttest.didierdjakoua.site
 CORE_BOT_USERNAME=
 CORE_BOT_PASSWORD=
 CORE_DEPARTURE_CITY=Douala

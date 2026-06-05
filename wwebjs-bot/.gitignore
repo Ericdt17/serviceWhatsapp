@@ -29,6 +29,7 @@ Thumbs.db
 *.md
 !README.md
 !TEST_SUMMARY.md
+!docs/DEPLOY_STAGING.md
 
 # Jest / coverage output
 coverage/

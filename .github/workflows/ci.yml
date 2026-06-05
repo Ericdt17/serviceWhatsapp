@@ -5,47 +5,14 @@ on:
     branches:
       - '**'
     paths:
-      - 'client/**'
       - 'wwebjs-bot/**'
       - '.github/workflows/**'
   pull_request:
     paths:
-      - 'client/**'
       - 'wwebjs-bot/**'
       - '.github/workflows/**'
 
 jobs:
-  client-ci:
-    name: Client - Lint & Build
-    runs-on: ubuntu-latest
-
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: 18
-          cache: 'npm'
-          cache-dependency-path: client/package-lock.json
-
-      - name: Install dependencies
-        working-directory: client
-        run: npm ci
-
-      - name: Lint
-        working-directory: client
-        run: npm run lint
-
-      - name: Unit tests
-        working-directory: client
-        run: npm test
-
-      - name: Build
-        working-directory: client
-        run: npm run build
-
   backend-unit:
     name: Backend - Jest Unit & Integration Tests
     runs-on: ubuntu-latest
