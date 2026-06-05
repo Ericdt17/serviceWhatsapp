@@ -221,7 +221,7 @@ async function createTransaction(
       messageText,
     });
     console.log(
-      `   📦 Catalog match: source=${packageMatch.source} method=${packageMatch.matchMethod} package="${packageMatch.package_name}" qty=${packageMatch.quantity}${packageMatch.quantitySource ? ` qty_via=${packageMatch.quantitySource}` : ""}`
+      `   📦 Catalog match: source=${packageMatch.source} method=${packageMatch.matchMethod} package="${packageMatch.package_name}" qty=${packageMatch.quantity}`
     );
   } catch (catalogErr) {
     console.warn(

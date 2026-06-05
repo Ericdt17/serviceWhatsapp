@@ -1,56 +1,115 @@
-# LivSight WhatsApp Service
+# SaaS Delivery (LivSight) — Monorepo Guide
 
-Node.js WhatsApp bot (`whatsapp-web.js`) that creates deliveries on **LivSight backend_core** when `USE_CORE_API=true`.
+This folder contains the **LivSight** delivery management system:
 
-The main LivSight **dashboard** lives in a separate repo (Vercel). Legacy `wwebjs-bot` Express API remains in this repo for optional local/legacy deploy on the bot VPS.
+- A **web dashboard** (React) for agencies and super admins
+- A **backend API + WhatsApp bot** (Node/Express + whatsapp-web.js)
+
+If you’re new here, start with the Quickstart below, then use the deeper READMEs for each sub-app.
 
 ---
 
-## Architecture
+## Architecture (mental model)
 
 ```mermaid
 flowchart LR
-  WhatsApp[WhatsApp_groups]
-  Bot[wwebjs-bot]
-  Core[backend_core_VPS]
-  Dashboard[LivSight_dashboard_Vercel]
+  WhatsAppGroups[WhatsApp_Groups]
+  Bot[wwebjs-bot/src/index.js]
+  Api[wwebjs-bot/src/api/server.js]
+  Db[(SQLite_or_Postgres)]
+  Web[client_(React_Dashboard)]
 
-  WhatsApp --> Bot
-  Bot -->|HTTPS CORE_AUTH_URL + CORE_API_BASE_URL| Core
-  Dashboard --> Core
+  WhatsAppGroups -->|messages| Bot
+  Bot -->|create_update| Db
+  Web -->|HTTP_(cookies)| Api
+  Api -->|queries| Db
 ```
 
-**Two VPSes in staging/prod:**
-
-- **Bot VPS** — PM2 `whatsapp-bot-core` (this repo)
-- **Core VPS** — `https://livsighttest.didierdjakoua.site` (auth + API)
+Key ideas:
+- **UI “Prestataire” = backend `groups`**.
+- **Deliveries** are created either via WhatsApp parsing (bot) or via REST API calls (dashboard / vendor routes).
+- The API uses **JWT in an HTTP-only cookie** by default; mobile clients can use **Bearer tokens** when enabled (see `API.md`).
 
 ---
 
-## Quickstart (local)
+## Repo structure
+
+Top-level sub-apps:
+- `client/`: web dashboard (Vite + React + TypeScript + shadcn/ui + Tailwind)
+- `wwebjs-bot/`: WhatsApp bot + REST API + DB layer (Node + Express)
+
+Reference docs (already in this folder):
+- `REPO_DOCUMENTATION.md`: full system overview and data model
+- `API.md`: HTTP API reference
+- `Production Deployment guide.md`: deployment guide
+- `PRODUCTION_DEPLOYMENT_CHECKLIST.md`: production checklist
+- `PRODUCTION_TROUBLESHOOTING.md`: production troubleshooting
+- `DOMAIN_AND_DEPLOYMENT_SETUP.md`: domain/DNS notes
+
+---
+
+## Quickstart (local development)
+
+### 1) Backend (`wwebjs-bot/`)
+
+From `saasDelivery/wwebjs-bot/`:
 
 ```bash
-cd wwebjs-bot
-cp .envexample .env   # edit CORE_* and credentials
 npm install
-npm run dev          # bot + optional local API
+
+# Choose ONE:
+# SQLite (simplest)
+cp ENV_LOCAL_EXAMPLE.txt .env
+
+# OR PostgreSQL
+cp env.local.postgres.example .env
+
+# Create tables
+npm run migrate
+
+# Run API + bot (dev)
+npm run dev
+
+# Or run API only (no WhatsApp)
+npm run api:dev
 ```
 
-See [wwebjs-bot/README.md](wwebjs-bot/README.md) and [wwebjs-bot/docs/DEPLOY_STAGING.md](wwebjs-bot/docs/DEPLOY_STAGING.md).
+Notes:
+- In production, the API refuses to start without `ALLOWED_ORIGINS` (see `wwebjs-bot/src/api/server.js`).
+- **Do not commit** `wwebjs-bot/.env` (it contains secrets). Use the `env.*.example` files as templates.
+
+### 2) Web dashboard (`client/`)
+
+From `saasDelivery/client/`:
+
+```bash
+npm install
+cp .env.example .env.local
+
+# Recommended: keep VITE_API_BASE_URL empty to use Vite proxy
+# (see client/ENV_SETUP.md)
+
+npm run dev
+```
+
+By default, the Vite dev server proxies `/api/*` to `http://localhost:3000` (see `client/vite.config.ts`).
 
 ---
 
-## Docs
+## Key concepts (glossary)
 
-- [WHATSAPP_SERVICE_ROLLOUT.md](WHATSAPP_SERVICE_ROLLOUT.md) — integration roadmap
-- [wwebjs-bot/docs/DEPLOY_STAGING.md](wwebjs-bot/docs/DEPLOY_STAGING.md) — staging deploy on bot VPS
-- [API.md](API.md) — legacy REST API (optional)
-- [Production Deployment guide.md](Production%20Deployment%20guide.md) — legacy full stack
+- **Agency**: an account that logs into the dashboard (role `agency`). Agencies own groups and deliveries.
+- **Super admin**: global admin (role `super_admin`) who can manage multiple agencies.
+- **Group / Prestataire**: WhatsApp group entity used as a “provider” in the UI. Stored in the `groups` table.
+- **Delivery / Livraison**: a delivery record stored in `deliveries`.
+- **Vendor**: a vendor user (role `vendor`) used by `/api/v1/vendor/*` routes (mobile app use-case).
+- **Stock item (Magasin)**: inventory entries per vendor group, stored in `stock_items`.
 
 ---
 
-## CI/CD
+## Where to start (junior dev path)
 
-- **CI** — `wwebjs-bot` Jest + Postgres integration (`.github/workflows/ci.yml`)
-- **CD legacy** — `/opt/saasDelivery/...` (`cd.yml`)
-- **CD core bot** — `/opt/livsight-whatsapp-core` (`cd-bot-core.yml`)
+1) Read `REPO_DOCUMENTATION.md` for the end-to-end flow.
+2) Use `client/README.md` to learn the dashboard structure and conventions.
+3) Use `wwebjs-bot/README.md` for backend scripts, env setup, migrations, and production notes.
+

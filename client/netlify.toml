@@ -1,0 +1,15 @@
+[build]
+  # Build command to run
+  command = "npm run build"
+  
+  # Directory where the built files are located
+  # This overrides the UI setting
+  publish = "dist"
+
+# Redirect all routes to index.html for React Router
+# This is needed for React Router to work properly
+[[redirects]]
+  from = "/*"
+  to = "/index.html"
+  status = 200
+

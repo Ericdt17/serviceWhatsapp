@@ -166,13 +166,11 @@ Other useful scripts live in `src/scripts/` (examples: vendor creation, migratio
 
 ## Production
 
-**Core bot (staging):** [docs/DEPLOY_STAGING.md](docs/DEPLOY_STAGING.md) — PM2 `whatsapp-bot-core` on bot VPS → `https://livsighttest.didierdjakoua.site`.
-
-**Legacy stack:** `../Production Deployment guide.md`, `../PRODUCTION_DEPLOYMENT_CHECKLIST.md`.
-
-CD workflows: `cd-bot-core.yml` (core) and `cd.yml` (legacy).
+Deployed on VPS via GitHub Actions CD pipeline. See:
+- `../PRODUCTION_DEPLOYMENT_CHECKLIST.md`
+- `../Production Deployment guide.md`
+- `../PRODUCTION_TROUBLESHOOTING.md`
 
 ```bash
 npm start    # node src/index.js
-pm2 start ecosystem.bot-core.config.js
 ```

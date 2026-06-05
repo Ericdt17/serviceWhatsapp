@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 80 80" fill="none">
+  <!-- Outer rounded square background -->
+  <rect x="4" y="4" width="72" height="72" rx="18" fill="#7C3AED"/>
+
+  <!-- Package / box top (lid) -->
+  <path d="M20 35 L40 24 L60 35 L60 57 Q60 60 57 60 L23 60 Q20 60 20 57 Z" fill="white" opacity="0.95"/>
+
+  <!-- Box dividing line (lid crease) -->
+  <line x1="20" y1="37" x2="60" y2="37" stroke="#7C3AED" stroke-width="2"/>
+
+  <!-- Tape strip -->
+  <rect x="35" y="24" width="10" height="36" rx="2" fill="#A78BFA" opacity="0.6"/>
+
+  <!-- Eye highlight on package -->
+  <ellipse cx="40" cy="49" rx="9" ry="6" fill="#EDE9FE"/>
+  <circle cx="40" cy="49" r="3.5" fill="#7C3AED"/>
+  <circle cx="41.2" cy="47.8" r="1.2" fill="white"/>
+</svg>
