@@ -16,7 +16,7 @@ flowchart LR
   Dashboard[LivSight_dashboard_Vercel]
 
   WhatsApp --> Bot
-  Bot -->|HTTPS CORE_AUTH_URL + CORE_API_BASE_URL| Core
+  Bot -->|HTTPS CORE_API_BASE_URL| Core
   Dashboard --> Core
 ```
 

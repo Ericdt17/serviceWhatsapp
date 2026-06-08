@@ -1,86 +1,110 @@
-# LivSight - wwebjs-bot environment example
-# Copy this file to `.env` and fill in real values.
+# LivSight WhatsApp bot — environment example
+# Copy to `.env` and fill in real values. Never commit `.env`.
+#
+# Deploy runbook: wwebjs-bot/docs/DEPLOY_STAGING.md
+
+# =============================================================================
+# Staging bot VPS — full `.env` (copy block below, then fill secrets)
+# =============================================================================
+# NODE_ENV=production
+# USE_CORE_API=true
+# SKIP_MIGRATIONS=true
+#
+# CORE_API_BASE_URL=https://staging-gateway.livsight.com
+#
+# CORE_BOT_USERNAME=whatsapp-bot
+# CORE_BOT_PASSWORD=<staging password for whatsapp-bot>
+#
+# CORE_DEPARTURE_CITY=Douala
+# CORE_DEPARTURE_REGION=Littoral
+# CORE_DEPARTURE_STREET=Bonapriso Shop
+# CORE_DESTINATION_CITY=Douala
+# CORE_DESTINATION_REGION=Littoral
+# CORE_DESTINATION_STREET=N/A
+#
+# CLIENT_ID=livsight-bot-core-staging
+#
+# AI_DELIVERY_FALLBACK_ENABLED=true
+# OPENAI_API_KEY=<your OpenAI API key>
+#
+# BOT_ALERT_WEBHOOK_URL=<Discord webhook URL for bot alerts>
+# =============================================================================
 
 # ---------------------------
-# Database
+# Core mode (staging bot VPS — recommended)
 # ---------------------------
-# Postgres on staging/production server (not local Docker).
-# If unset, the bot falls back to SQLite (local dev only).
-DB_TYPE=postgres
-DATABASE_URL=postgresql://USER:PASSWORD@HOST:5432/DATABASE_NAME
-PG_SSL=false
-# Core mode (staging bot VPS): USE_CORE_API=true, SKIP_MIGRATIONS=true
-# See wwebjs-bot/docs/DEPLOY_STAGING.md
-SKIP_MIGRATIONS=false
+# USE_CORE_API=true     → orders go to backend_core (not local deliveries table)
+# SKIP_MIGRATIONS=true  → bot does not create groups/deliveries tables on shared DB
 USE_CORE_API=false
+SKIP_MIGRATIONS=false
+
+# ---------------------------
+# Database (legacy mode / optional Express API only)
+# ---------------------------
+# Not required when USE_CORE_API=true (gateway-only bot).
+# Required for legacy bot (USE_CORE_API=false) or npm run api:dev:
+# DATABASE_URL=postgresql://USER:PASSWORD@HOST:5432/DATABASE_NAME
+# PG_SSL=false
 
 # ---------------------------
 # Server
 # ---------------------------
 API_PORT=3000
+# VPS: production | local: development
 NODE_ENV=development
-TIME_ZONE=UTC
-
-# Comma-separated list of allowed origins (CORS). Must include your frontend URL(s).
+TIME_ZONE=Africa/Douala
 ALLOWED_ORIGINS=http://localhost:5173
 
 # ---------------------------
-# Auth (REQUIRED)
+# Auth (legacy Express API — optional)
 # ---------------------------
-# Required for login (do NOT use a placeholder in real envs)
 JWT_SECRET=CHANGE_ME_TO_A_LONG_RANDOM_SECRET
-
-# Enable Bearer token auth (Authorization header) as fallback.
-# Useful for mobile apps that cannot use HTTP-only cookies.
 AUTH_HEADER_FALLBACK=true
 
 # ---------------------------
 # LivSight core API (separate core VPS — NOT the bot VPS)
 # ---------------------------
-# Staging: auth + API live on core VPS behind this domain.
-# Bot VPS only calls OUT to these URLs (outbound HTTPS).
-# If POST /api/transactions fails (X-User-Id ignored), try CORE_API_BASE_URL
-# to core direct on core host, e.g. http://CORE_VPS_IP:8085 — keep auth on HTTPS domain.
-CORE_AUTH_URL=https://livsighttest.didierdjakoua.site/auth/login
-CORE_API_BASE_URL=https://livsighttest.didierdjakoua.site
-CORE_BOT_USERNAME=
+# Gateway / API base (auth → {CORE_API_BASE_URL}/auth/login):
+CORE_API_BASE_URL=https://staging-gateway.livsight.com
+# Local dev:
+# CORE_API_BASE_URL=http://localhost:4040
+
+CORE_BOT_USERNAME=whatsapp-bot
 CORE_BOT_PASSWORD=
+
 CORE_DEPARTURE_CITY=Douala
 CORE_DEPARTURE_REGION=Littoral
-CORE_DEPARTURE_STREET=
+CORE_DEPARTURE_STREET=Bonapriso Shop
 CORE_DESTINATION_CITY=Douala
 CORE_DESTINATION_REGION=Littoral
 CORE_DESTINATION_STREET=N/A
 
 # ---------------------------
-# Bot behavior (optional)
+# WhatsApp session
 # ---------------------------
-# WhatsApp LocalAuth session id (isolates dev/staging/prod sessions)
-CLIENT_ID=livsight-bot-staging
-# WhatsApp group id like: 1234567890-1234567890@g.us
+# Isolates dev / staging / prod sessions (do not reuse across environments)
+# VPS core bot: livsight-bot-core-staging | local: livsight-bot-staging
+CLIENT_ID=livsight-bot-core-staging
+# Optional: process only this group (id from #link)
 GROUP_ID=
 
 SEND_CONFIRMATIONS=false
-
-# Daily report settings (if you have a scheduler enabled)
 REPORT_ENABLED=false
 REPORT_TIME=20:00
-
-# When a message looks like a delivery but strict parse fails,
-# send a reminder with accepted formats.
 FORMAT_REMINDER_ENABLED=true
 
 # ---------------------------
-# Alerts / Webhooks (optional)
+# AI fallback (recommended on staging)
 # ---------------------------
-# Example: Discord webhook URL for bot alerts
-BOT_ALERT_WEBHOOK_URL=
+# Parses messy WhatsApp lines + quantity when regex fails
+AI_DELIVERY_FALLBACK_ENABLED=true
+OPENAI_API_KEY=
 
 # ---------------------------
-# AI (optional)
+# Discord alerts (recommended on staging)
 # ---------------------------
-OPENAI_API_KEY=
-AI_DELIVERY_FALLBACK_ENABLED=false
+# Server Settings → Integrations → Webhooks → New Webhook → copy URL
+BOT_ALERT_WEBHOOK_URL=
 
 # ---------------------------
 # Cloudinary (optional)
@@ -88,4 +112,3 @@ AI_DELIVERY_FALLBACK_ENABLED=false
 CLOUDINARY_CLOUD_NAME=
 CLOUDINARY_API_KEY=
 CLOUDINARY_API_SECRET=
-

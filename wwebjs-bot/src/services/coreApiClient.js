@@ -24,8 +24,8 @@ async function parseJsonResponse(res) {
 }
 
 async function login() {
-  if (!config.CORE_AUTH_URL || !config.CORE_BOT_USERNAME || !config.CORE_BOT_PASSWORD) {
-    throw new Error("CORE_AUTH_URL, CORE_BOT_USERNAME, CORE_BOT_PASSWORD are required");
+  if (!config.CORE_API_BASE_URL || !config.CORE_BOT_USERNAME || !config.CORE_BOT_PASSWORD) {
+    throw new Error("CORE_API_BASE_URL, CORE_BOT_USERNAME, CORE_BOT_PASSWORD are required");
   }
 
   const res = await fetch(config.CORE_AUTH_URL, {

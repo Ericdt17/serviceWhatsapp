@@ -5,9 +5,9 @@ Two VPSes:
 | VPS | Role |
 |-----|------|
 | **Bot VPS** | `whatsapp-bot-core` (this repo) — PM2, WhatsApp session |
-| **Core VPS** | Auth + API — `https://livsighttest.didierdjakoua.site` |
+| **Core VPS** | Auth + API — `https://staging-gateway.livsight.com` |
 
-The bot only makes **outbound HTTPS** to the core VPS. It does not host auth or transactions.
+The bot only makes **outbound HTTPS** to the core VPS. It does not host auth or transactions. No `DATABASE_URL` is required on the bot VPS in core mode.
 
 ---
 
@@ -20,10 +20,9 @@ NODE_ENV=production
 USE_CORE_API=true
 SKIP_MIGRATIONS=true
 
-CORE_AUTH_URL=https://livsighttest.didierdjakoua.site/auth/login
-CORE_API_BASE_URL=https://livsighttest.didierdjakoua.site
+CORE_API_BASE_URL=https://staging-gateway.livsight.com
 
-CORE_BOT_USERNAME=snake
+CORE_BOT_USERNAME=whatsapp-bot
 CORE_BOT_PASSWORD=<staging password>
 
 CORE_DEPARTURE_CITY=Douala
@@ -36,15 +35,13 @@ CORE_DESTINATION_STREET=N/A
 CLIENT_ID=livsight-bot-core-staging
 
 AI_DELIVERY_FALLBACK_ENABLED=true
-OPENAI_API_KEY=<optional>
-BOT_ALERT_WEBHOOK_URL=<optional>
+OPENAI_API_KEY=<your OpenAI API key>
+
+# Discord: Server Settings → Integrations → Webhooks → copy URL
+BOT_ALERT_WEBHOOK_URL=https://discord.com/api/webhooks/WEBHOOK_ID/WEBHOOK_TOKEN
 ```
 
-Dashboard (separate Vercel repo): `VITE_API_BASE_URL=https://livsighttest.didierdjakoua.site`
-
-If `POST /api/transactions` fails with wrong user, set only:
-
-`CORE_API_BASE_URL=http://156.67.27.35:8085` (keep auth on HTTPS domain).
+Dashboard (separate Vercel repo): `VITE_API_BASE_URL=https://staging-gateway.livsight.com`
 
 ---
 
@@ -85,18 +82,17 @@ CD workflow: `.github/workflows/cd-bot-core.yml` (optional env `BOT_CORE_DEPLOY_
 Auth login (expect HTTP 200 and `accessToken`):
 
 ```bash
-curl -s -X POST "https://livsighttest.didierdjakoua.site/auth/login" \
+curl -s -X POST "https://staging-gateway.livsight.com/auth/login" \
   -H "Content-Type: application/json" \
-  -d '{"username":"snake","password":"YOUR_PASSWORD"}'
+  -d '{"username":"whatsapp-bot","password":"YOUR_PASSWORD"}'
 ```
 
 Smoke script (set env vars first):
 
 ```bash
 cd wwebjs-bot
-CORE_AUTH_URL=https://livsighttest.didierdjakoua.site/auth/login \
-CORE_API_BASE_URL=https://livsighttest.didierdjakoua.site \
-CORE_BOT_USERNAME=snake CORE_BOT_PASSWORD=... \
+CORE_API_BASE_URL=https://staging-gateway.livsight.com \
+CORE_BOT_USERNAME=whatsapp-bot CORE_BOT_PASSWORD=... \
 CORE_USER_ID=<client-keycloak-uuid> \
   node src/scripts/smoke-test-core-transaction.js
 ```

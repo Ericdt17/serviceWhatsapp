@@ -22,8 +22,8 @@ Copy `wwebjs-bot/.envexample` → `.env`.
 
 ## Core API flow
 
-1. `POST CORE_AUTH_URL` — bot user (`snake`) → JWT
-2. `GET CORE_API_BASE_URL/api/users/whatsapp/{groupId}` — resolve client
+1. `POST {CORE_API_BASE_URL}/auth/login` — bot user → JWT
+2. `GET {CORE_API_BASE_URL}/api/users/whatsapp/{groupId}` — resolve client
 3. `GET /api/packages` + catalog match → `POST /api/transactions` with `X-User-Id`
 
 Key files: `src/services/coreApiClient.js`, `src/lib/packageCatalogMatch.js`, `src/handlers/messageHandler.js`, `src/handlers/deliveryHandler.js`.
@@ -41,10 +41,10 @@ See [wwebjs-bot/docs/DEPLOY_STAGING.md](wwebjs-bot/docs/DEPLOY_STAGING.md).
 | Variable | Purpose |
 |----------|---------|
 | `USE_CORE_API` | `true` → backend_core |
-| `SKIP_MIGRATIONS` | `true` on bot host with shared core DB |
-| `CORE_AUTH_URL` | e.g. `https://livsighttest.didierdjakoua.site/auth/login` |
-| `CORE_API_BASE_URL` | Same domain (or `:8085` fallback) |
-| `CORE_BOT_USERNAME` / `CORE_BOT_PASSWORD` | Bot login (`snake`) |
+| `SKIP_MIGRATIONS` | `true` recommended in core mode |
+| `DATABASE_URL` | Optional in core mode; required for legacy bot or `api:dev` |
+| `CORE_API_BASE_URL` | Gateway base URL (e.g. `https://livsighttest.didierdjakoua.site`) |
+| `CORE_BOT_USERNAME` / `CORE_BOT_PASSWORD` | Bot login (`whatsapp-bot`) |
 | `CLIENT_ID` | WhatsApp session isolation |
 
 ## Legacy API (optional)

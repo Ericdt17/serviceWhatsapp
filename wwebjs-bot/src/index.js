@@ -29,8 +29,10 @@ if (process.env.DATABASE_URL) {
   } catch (e) {
     console.log(`   DATABASE_URL: *** (present but invalid format)`);
   }
+} else if (config.USE_CORE_API) {
+  console.log(`   DATABASE_URL: not used (core API mode)`);
 } else {
-  console.log(`   DATABASE_URL: NOT SET (required — set DATABASE_URL)`);
+  console.log(`   DATABASE_URL: NOT SET (required for legacy mode)`);
 }
 console.log("=".repeat(60) + "\n");
 
@@ -420,6 +422,13 @@ process.on("unhandledRejection", (reason, promise) => {
 function setupDailyReportScheduler() {
   if (!config.REPORT_ENABLED) {
     console.log("📊 Daily reports are disabled (REPORT_ENABLED=false)");
+    return;
+  }
+
+  if (config.USE_CORE_API && !process.env.DATABASE_URL) {
+    console.log(
+      "📊 Daily reports disabled in core API mode without DATABASE_URL (reports read local deliveries table)"
+    );
     return;
   }
 

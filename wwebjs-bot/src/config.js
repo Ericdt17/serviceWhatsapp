@@ -44,9 +44,14 @@ module.exports = {
     return Number.isFinite(n) && n >= 50 ? n : 300;
   })(),
 
-  // LivSight core API (staging/prod via gateway)
-  CORE_API_BASE_URL: (process.env.CORE_API_BASE_URL || "").replace(/\/+$/, ""),
-  CORE_AUTH_URL: process.env.CORE_AUTH_URL || "",
+  // LivSight core API — single gateway/base URL; auth is {base}/auth/login
+  ...(() => {
+    const base = (process.env.CORE_API_BASE_URL || "").replace(/\/+$/, "");
+    return {
+      CORE_API_BASE_URL: base,
+      CORE_AUTH_URL: base ? `${base}/auth/login` : "",
+    };
+  })(),
   CORE_BOT_USERNAME: process.env.CORE_BOT_USERNAME || null,
   CORE_BOT_PASSWORD: process.env.CORE_BOT_PASSWORD || null,
   CORE_DEPARTURE_CITY: process.env.CORE_DEPARTURE_CITY || "Douala",
