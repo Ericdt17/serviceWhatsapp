@@ -118,11 +118,12 @@ jobs:
         env:
           GH_USERNAME: ${{ secrets.GH_USERNAME }}
           GH_TOKEN: ${{ secrets.GH_TOKEN }}
+          BOT_HEALTH_PUBLIC_URL: ${{ secrets.BOT_HEALTH_PUBLIC_URL }}
         with:
           host: ${{ secrets.VPS_HOST }}
           username: ${{ secrets.VPS_USER }}
           key: ${{ secrets.VPS_SSH_KEY }}
-          envs: GH_USERNAME,GH_TOKEN
+          envs: GH_USERNAME,GH_TOKEN,BOT_HEALTH_PUBLIC_URL
           script: |
             set -e
 
@@ -159,8 +160,13 @@ jobs:
             pm2 restart whatsapp-bot-core || pm2 start ecosystem.bot-core.config.js
             pm2 save
 
-            echo "→ Verifying..."
+            echo "→ Verifying PM2 process..."
             sleep 3
             pm2 list | grep whatsapp-bot-core
+
+            echo "→ Health smoke (local + optional public URL)..."
+            export BOT_HEALTH_PUBLIC_URL="${BOT_HEALTH_PUBLIC_URL:-}"
+            chmod +x wwebjs-bot/scripts/verify-bot-health.sh
+            bash wwebjs-bot/scripts/verify-bot-health.sh
 
             echo "✓ Core bot deploy complete"

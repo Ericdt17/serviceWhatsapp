@@ -8,6 +8,10 @@ const { createRemindersWorker } = require("./reminders/worker");
 const { generateDailyReport } = require("./lib/daily-report");
 const botAlerts = require("./lib/botAlerts");
 const { startBotHealthServer } = require("./lib/botHealthServer");
+const {
+  isShuttingDown,
+  registerGracefulShutdown,
+} = require("./lib/gracefulShutdown");
 const { onMessage } = require("./handlers/messageHandler");
 const coreApi = require("./services/coreApiClient");
 
@@ -94,6 +98,15 @@ const client = new Client({
 
 // Show QR code in terminal when authentication needed
 let qrShown = false;
+/** @type {ReturnType<typeof setTimeout> | null} */
+let disconnectReconnectTimer = null;
+
+function clearDisconnectReconnectTimer() {
+  if (disconnectReconnectTimer) {
+    clearTimeout(disconnectReconnectTimer);
+    disconnectReconnectTimer = null;
+  }
+}
 
 if (config.AI_DELIVERY_FALLBACK_ENABLED && !config.OPENAI_API_KEY) {
   console.warn("[config] AI_DELIVERY_FALLBACK_ENABLED=true but OPENAI_API_KEY is missing — AI fallback will be skipped on every malformed message.");
@@ -218,12 +231,18 @@ async function getBotHealthStatus() {
   };
 }
 
-startBotHealthServer({ getStatus: getBotHealthStatus });
+const healthServerHandle = startBotHealthServer({ getStatus: getBotHealthStatus });
 
 botAlerts.init({
   getQrShown: () => qrShown,
   client,
   getHealth: getBotHealthStatus,
+});
+
+registerGracefulShutdown({
+  client,
+  healthServer: healthServerHandle?.server ?? null,
+  clearReconnectTimer: clearDisconnectReconnectTimer,
 });
 
 function logListenerDiagnostics(label) {
@@ -357,11 +376,19 @@ client.on("disconnected", (reason) => {
   console.log("⚠️  CLIENT DISCONNECTED");
   console.log("=".repeat(60));
   console.log("Reason:", reason);
+
+  if (isShuttingDown()) {
+    console.log("\n💡 Shutdown in progress — skipping auto-reconnect.\n");
+    return;
+  }
+
   console.log("\n💡 The session is saved in ./auth folder");
   console.log("🔄 Attempting to reconnect...\n");
 
-  // Auto-reconnect after 5 seconds
-  setTimeout(() => {
+  clearDisconnectReconnectTimer();
+  disconnectReconnectTimer = setTimeout(() => {
+    disconnectReconnectTimer = null;
+    if (isShuttingDown()) return;
     console.log("🔄 Reconnecting...");
     client.initialize();
   }, 5000);

@@ -72,8 +72,9 @@ pm2 startup   # follow printed command
 | `VPS_SSH_KEY` | Private SSH key (PEM) |
 | `GH_USERNAME` | GitHub user for `git pull` on VPS |
 | `GH_TOKEN` | PAT with `repo` read access to `livSight/serviceWhatsapp` |
+| `BOT_HEALTH_PUBLIC_URL` | Optional: `https://bot-health.livsight.com/health` — public smoke after deploy |
 
-Auto-deploy: `.github/workflows/ci.yml` job `deploy-bot` (runs after tests pass on `main`).
+Auto-deploy: `.github/workflows/ci.yml` job `deploy-bot` (runs after tests pass on `main`). Deploy runs `scripts/verify-bot-health.sh` on the VPS (local `/health` always; public URL if secret set).
 
 Manual deploy: Actions → **CD Bot Core** → Run workflow (skips CI).
 
@@ -145,3 +146,37 @@ Voir [UPTIME_KUMA.md](./UPTIME_KUMA.md).
 ```bash
 pm2 stop whatsapp-bot   # legacy only when core bot is stable
 ```
+
+---
+
+## 8. Upgrading whatsapp-web.js / WA Web version
+
+See also [PROD_ROADMAP.md](./PROD_ROADMAP.md).
+
+Two **separate** pins — bumping one does not update the other:
+
+| Pin | Where | Current (Phase 1) |
+|-----|--------|-------------------|
+| **Library** | `wwebjs-bot/package.json` → `whatsapp-web.js` | Commit `b0e869317f301f3bd20dea20cdcbb08e452d8f36` |
+| **WA Web HTML** | `src/index.js` → `webVersionCache.remotePath` | `2.2413.51-beta` (wppconnect-team/wa-version) |
+
+### Upgrade checklist
+
+1. On a branch: bump wwebjs commit and/or `webVersionCache` URL on **staging** only.
+2. Run `npm install` and `npm test` locally; push and let CI pass.
+3. Deploy to staging VPS (`main` or manual CD).
+4. Verify: `bash scripts/verify-bot-health.sh` (or curl `/health` — expect `"ok": true`).
+5. Send a test order in a linked WhatsApp group.
+6. Watch `pm2 logs whatsapp-bot-core` for 24h; then repeat for prod.
+
+If WhatsApp Web breaks after a Meta update, try a newer HTML from [wa-version](https://github.com/wppconnect-team/wa-version) before bumping the whole library.
+
+### Post-deploy health smoke (manual)
+
+```bash
+cd /opt/livsight-whatsapp-core/wwebjs-bot
+export BOT_HEALTH_PUBLIC_URL=https://bot-health.livsight.com/health   # optional
+bash scripts/verify-bot-health.sh
+```
+
+Fails with `"ok": false` if WhatsApp is disconnected or Core API auth is broken — expected after QR loss until rescanned.
