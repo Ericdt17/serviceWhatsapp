@@ -29,18 +29,25 @@ jobs:
             set -e
 
             DEPLOY_ROOT="${BOT_CORE_DEPLOY_PATH:-/opt/livsight-whatsapp-core}"
+            REPO_SLUG="Ericdt17/serviceWhatsapp"
+
+            if [ -n "${GH_TOKEN:-}" ] && [ -n "${GH_USERNAME:-}" ]; then
+              REPO_URL="https://${GH_USERNAME}:${GH_TOKEN}@github.com/${REPO_SLUG}.git"
+            else
+              REPO_URL="https://github.com/${REPO_SLUG}.git"
+            fi
 
             if [ ! -d "$DEPLOY_ROOT/.git" ]; then
               echo "→ First deploy: clone into $DEPLOY_ROOT"
               sudo mkdir -p "$DEPLOY_ROOT"
               sudo chown -R "$(whoami):$(whoami)" "$DEPLOY_ROOT"
-              git clone "https://${GH_USERNAME}:${GH_TOKEN}@github.com/livSight/serviceWhatsapp.git" "$DEPLOY_ROOT"
+              git clone "$REPO_URL" "$DEPLOY_ROOT"
             fi
 
             cd "$DEPLOY_ROOT"
 
             echo "→ Pulling latest code..."
-            git remote set-url origin "https://${GH_USERNAME}:${GH_TOKEN}@github.com/livSight/serviceWhatsapp.git"
+            git remote set-url origin "$REPO_URL"
             git fetch origin main
             git reset --hard origin/main
 
@@ -51,7 +58,7 @@ jobs:
             echo "→ Skipping migrations (USE_CORE_API + SKIP_MIGRATIONS on bot host)"
 
             echo "→ Restarting whatsapp-bot-core..."
-            pm2 restart whatsapp-bot-core || pm2 start src/index.js --name whatsapp-bot-core
+            pm2 restart whatsapp-bot-core || pm2 start ecosystem.bot-core.config.js
             pm2 save
 
             echo "→ Verifying..."
