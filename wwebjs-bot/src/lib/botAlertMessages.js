@@ -75,6 +75,13 @@ function waAuthFailure() {
   return withPrefix("Échec connexion WhatsApp — rescanner le QR.");
 }
 
+function waLogoutRequired(reason) {
+  const r = reason ? String(reason) : "inconnue";
+  return withPrefix(
+    `Session WhatsApp fermée (${r}). Rescanner le QR sur le VPS.`
+  );
+}
+
 function waNotConnected(minutes, state) {
   return withPrefix(
     `WhatsApp non prêt depuis ${minutes} min (état: ${state || "?"}).`
@@ -103,6 +110,7 @@ module.exports = {
   heartbeat,
   qrStale,
   waAuthFailure,
+  waLogoutRequired,
   waNotConnected,
   genericError,
 };

@@ -123,6 +123,19 @@ BOT_ALERT_WEBHOOK_URL=
 # BOT_ALERT_HEARTBEAT_HOURS=24
 
 # ---------------------------
+# WhatsApp reconnect (Phase 2)
+# ---------------------------
+# BOT_WA_RECONNECT_INITIAL_MS=5000
+# BOT_WA_RECONNECT_MAX_MS=300000
+# BOT_WA_FATAL_DISCONNECT_REASONS=LOGOUT,UNPAIRED,UNPAIRED_IDLE
+
+# ---------------------------
+# WhatsApp session backup (VPS cron)
+# ---------------------------
+# WA_SESSION_BACKUP_DIR=../backups/wa-session
+# WA_SESSION_BACKUP_KEEP=7
+
+# ---------------------------
 # Health check (Uptime Kuma)
 # ---------------------------
 # GET http://127.0.0.1:3099/health → 200 when WhatsApp + Core API auth OK

@@ -116,6 +116,23 @@ Scan QR in logs or open `wwebjs-bot/qr-code.png` on the VPS. Confirm `BOT IS REA
 
 Do not delete `.wwebjs_auth/session-livsight-bot-core-staging/`.
 
+Full runbook: [QR_RECOVERY.md](./QR_RECOVERY.md).
+
+### Session backup (nightly cron)
+
+```bash
+cd /opt/livsight-whatsapp-core/wwebjs-bot
+bash scripts/backup-wa-session.sh
+```
+
+Cron example:
+
+```cron
+0 3 * * * cd /opt/livsight-whatsapp-core/wwebjs-bot && bash scripts/backup-wa-session.sh >> logs/wa-backup.log 2>&1
+```
+
+Archives: `../backups/wa-session/wa-session-{CLIENT_ID}-*.tar.gz` (keeps last 7 by default).
+
 ---
 
 ## 5. Uptime Kuma & domaine health

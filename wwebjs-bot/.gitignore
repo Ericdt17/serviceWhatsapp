@@ -33,6 +33,7 @@ Thumbs.db
 !docs/HOW_THE_BOT_WORKS.md
 !docs/UPTIME_KUMA.md
 !docs/PROD_ROADMAP.md
+!docs/QR_RECOVERY.md
 !deploy/
 
 # Jest / coverage output

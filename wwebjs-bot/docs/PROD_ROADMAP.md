@@ -9,6 +9,7 @@ Complete each phase before moving to the next.
 - [DEPLOY_STAGING.md](./DEPLOY_STAGING.md)
 - [UPTIME_KUMA.md](./UPTIME_KUMA.md)
 - [HOW_THE_BOT_WORKS.md](./HOW_THE_BOT_WORKS.md)
+- [QR_RECOVERY.md](./QR_RECOVERY.md)
 - [whatsapp-web.js guide](https://wwebjs.dev/guide)
 
 ---
@@ -75,13 +76,24 @@ Verify on `/opt/livsight-whatsapp-core/wwebjs-bot/.env`:
 
 **Goal:** Survive disconnects and disk issues without long outages.
 
-| # | Task |
-|---|------|
-| 2.1 | Nightly backup of `.wwebjs_auth/session-{CLIENT_ID}/` |
-| 2.2 | QR recovery runbook |
-| 2.3 | Exponential backoff on reconnect |
-| 2.4 | Treat `LOGOUT` disconnect: stop loop, alert rescan QR |
-| 2.5 | Optional: `RemoteAuth` + S3 |
+| # | Task | Status |
+|---|------|--------|
+| 2.1 | Nightly backup of `.wwebjs_auth/session-{CLIENT_ID}/` | Done in repo — enable cron on VPS |
+| 2.2 | QR recovery runbook | [QR_RECOVERY.md](./QR_RECOVERY.md) |
+| 2.3 | Exponential backoff on reconnect | `src/lib/waReconnect.js` |
+| 2.4 | `LOGOUT` disconnect: stop loop, alert rescan QR | `botAlerts` + `waReconnect` |
+| 2.5 | Optional: `RemoteAuth` + S3 | **Deferred** |
+
+Core API HTTP 401 auto re-login is **unchanged** (`coreApiClient.withAuthRetry`).
+
+### Phase 2 exit criteria
+
+- [ ] `npm test` passes (includes `waReconnect.test.js`)
+- [ ] `LOGOUT` disconnect → Discord logout message, no reconnect loop in logs
+- [ ] Recoverable disconnect → backoff reconnect in logs
+- [ ] `bash scripts/backup-wa-session.sh` on VPS creates tarball
+- [ ] Cron backup enabled on staging VPS (optional but recommended)
+- [ ] [QR_RECOVERY.md](./QR_RECOVERY.md) reviewed by ops
 
 ---
 
@@ -145,4 +157,4 @@ Verify on `/opt/livsight-whatsapp-core/wwebjs-bot/.env`:
 
 ---
 
-*Last updated: 2026-06-08*
+*Last updated: 2026-06-09*

@@ -54,4 +54,9 @@ describe("botAlertMessages", () => {
       "[LivSight Bot] Bot OK — WhatsApp et API connectés."
     );
   });
+
+  it("waLogoutRequired includes reason", () => {
+    expect(msg.waLogoutRequired("LOGOUT")).toContain("LOGOUT");
+    expect(msg.waLogoutRequired("LOGOUT")).toContain("Rescanner le QR");
+  });
 });

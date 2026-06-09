@@ -30,13 +30,23 @@ describe("botAlerts", () => {
     return JSON.parse(call[1].body);
   }
 
-  it("sends reconnect alert after disconnected then ready", async () => {
+  it("sends reconnect alert after recoverable disconnect then ready", async () => {
     const botAlerts = require("../../lib/botAlerts");
-    botAlerts.notifyDisconnected("LOGOUT");
+    botAlerts.notifyDisconnected("NAVIGATION");
     botAlerts.notifyWhatsAppReady("120.5");
 
     expect(global.fetch).toHaveBeenCalledTimes(2);
     expect(lastDiscordBody().content).toMatch(/Bot reconnecté — WhatsApp OK/);
+  });
+
+  it("sends logout-required alert on LOGOUT without reconnect message", () => {
+    const botAlerts = require("../../lib/botAlerts");
+    botAlerts.notifyDisconnected("LOGOUT");
+
+    expect(global.fetch).toHaveBeenCalledTimes(1);
+    expect(lastDiscordBody().content).toMatch(/Session WhatsApp fermée/);
+    expect(lastDiscordBody().content).toMatch(/Rescanner le QR/);
+    expect(lastDiscordBody().content).not.toMatch(/Reconnexion en cours/);
   });
 
   it("sends immediate disconnect alert by default", () => {

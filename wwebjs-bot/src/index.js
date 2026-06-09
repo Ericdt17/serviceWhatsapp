@@ -12,6 +12,7 @@ const {
   isShuttingDown,
   registerGracefulShutdown,
 } = require("./lib/gracefulShutdown");
+const { createReconnectScheduler } = require("./lib/waReconnect");
 const { onMessage } = require("./handlers/messageHandler");
 const coreApi = require("./services/coreApiClient");
 
@@ -98,15 +99,11 @@ const client = new Client({
 
 // Show QR code in terminal when authentication needed
 let qrShown = false;
-/** @type {ReturnType<typeof setTimeout> | null} */
-let disconnectReconnectTimer = null;
 
-function clearDisconnectReconnectTimer() {
-  if (disconnectReconnectTimer) {
-    clearTimeout(disconnectReconnectTimer);
-    disconnectReconnectTimer = null;
-  }
-}
+const waReconnect = createReconnectScheduler({
+  client,
+  isShuttingDown,
+});
 
 if (config.AI_DELIVERY_FALLBACK_ENABLED && !config.OPENAI_API_KEY) {
   console.warn("[config] AI_DELIVERY_FALLBACK_ENABLED=true but OPENAI_API_KEY is missing — AI fallback will be skipped on every malformed message.");
@@ -242,7 +239,7 @@ botAlerts.init({
 registerGracefulShutdown({
   client,
   healthServer: healthServerHandle?.server ?? null,
-  clearReconnectTimer: clearDisconnectReconnectTimer,
+  clearReconnectTimer: () => waReconnect.clearTimer(),
 });
 
 function logListenerDiagnostics(label) {
@@ -287,6 +284,7 @@ function startRemindersWorkerIfEnabled() {
 
 client.on("ready", async () => {
   clientReady = true;
+  waReconnect.reset();
   botAlerts.notifyReady();
   const startupDuration = ((Date.now() - startupStartTime) / 1000).toFixed(1);
   botAlerts.notifyWhatsAppReady(startupDuration);
@@ -324,6 +322,7 @@ client.on("authenticated", async () => {
       console.log(`   State: ${state}`);
 
       if (state === "CONNECTED") {
+        waReconnect.reset();
         botAlerts.notifyReady();
         console.log("\n" + "=".repeat(60));
         console.log(`✅ CLIENT STATE: CONNECTED${clientReady ? " (ready event fired)" : " (ready event NOT fired yet)"}`);
@@ -382,16 +381,7 @@ client.on("disconnected", (reason) => {
     return;
   }
 
-  console.log("\n💡 The session is saved in ./auth folder");
-  console.log("🔄 Attempting to reconnect...\n");
-
-  clearDisconnectReconnectTimer();
-  disconnectReconnectTimer = setTimeout(() => {
-    disconnectReconnectTimer = null;
-    if (isShuttingDown()) return;
-    console.log("🔄 Reconnecting...");
-    client.initialize();
-  }, 5000);
+  waReconnect.scheduleReconnect(reason);
 });
 
 // Listen to all incoming messages (message_create is required on some whatsapp-web.js builds)

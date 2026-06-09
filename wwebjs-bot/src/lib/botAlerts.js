@@ -4,6 +4,7 @@
  */
 
 const msg = require("./botAlertMessages");
+const { isFatalDisconnect } = require("./waReconnect");
 
 const processStart = Date.now();
 
@@ -172,11 +173,28 @@ function notifyAuthFailure(_msg) {
   sendBotAlert(msg.waAuthFailure());
 }
 
+function notifyWaLogoutRequired(reason) {
+  if (!config().webhookUrl) return;
+  hadDisconnectSinceLastReady = true;
+  lastDisconnectReason = String(reason || "unknown");
+  clearDisconnectAlertTimer();
+  alertWithCooldown(
+    "wa-logout-required",
+    msg.waLogoutRequired(lastDisconnectReason),
+    config().errorCooldownMs
+  );
+}
+
 function notifyDisconnected(reason) {
   if (!config().webhookUrl) return;
   hadDisconnectSinceLastReady = true;
   lastDisconnectReason = String(reason || "unknown");
   clearDisconnectAlertTimer();
+
+  if (isFatalDisconnect(reason)) {
+    notifyWaLogoutRequired(reason);
+    return;
+  }
 
   if (config().disconnectImmediate) {
     sendBotAlert(msg.waDisconnected());
@@ -451,6 +469,7 @@ module.exports = {
   init,
   notifyAuthFailure,
   notifyDisconnected,
+  notifyWaLogoutRequired,
   notifyReady,
   onQrShown,
   notifyClientError,
