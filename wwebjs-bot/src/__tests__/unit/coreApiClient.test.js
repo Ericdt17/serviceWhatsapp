@@ -149,4 +149,41 @@ describe("coreApiClient auth retry", () => {
     await getAccessToken();
     expect(global.fetch).toHaveBeenCalledTimes(1);
   });
+
+  it("createTransaction maps TransactionResponse ref fields", async () => {
+    const {
+      createTransaction,
+      clearAuthCache,
+      clearCatalogCache,
+    } = require("../../services/coreApiClient");
+    clearAuthCache();
+    clearCatalogCache();
+
+    global.fetch
+      .mockResolvedValueOnce(loginResponse("token-a"))
+      .mockResolvedValueOnce(jsonResponse(200, [{ package_name: "Robe", user_id: 1 }]))
+      .mockResolvedValueOnce(
+        jsonResponse(200, {
+          id: 99,
+          transactionReference: "TX-2026-99",
+        })
+      );
+
+    const result = await createTransaction(
+      "client-kc",
+      {
+        phone: "612345678",
+        items: "2 robes",
+        amount_due: 15000,
+        quartier: "Makepe",
+      },
+      "612345678\n2 robes\n15000\nMakepe",
+      "true_120363@g.us_TEST",
+      { clientUserId: 1 }
+    );
+
+    expect(result._transactionRef).toBe(99);
+    expect(result.id).toBe(99);
+    expect(result.transactionReference).toBe("TX-2026-99");
+  });
 });

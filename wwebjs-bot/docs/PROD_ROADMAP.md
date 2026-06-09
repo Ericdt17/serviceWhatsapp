@@ -101,13 +101,23 @@ Core API HTTP 401 auto re-login is **unchanged** (`coreApiClient.withAuthRetry`)
 
 **Goal:** No duplicate orders, fewer silent failures.
 
-| # | Task |
-|---|------|
-| 3.1 | Idempotency on `whatsapp_message_id` (core mode) |
-| 3.2 | Backend unique constraint on message ID |
-| 3.3 | Circuit breaker on Core API 5xx |
-| 3.4 | Failed-order dead letter queue |
-| 3.5 | Optional: `SEND_CONFIRMATIONS=true` |
+| # | Task | Status |
+|---|------|--------|
+| 3.1 | Idempotency on `whatsapp_message_id` (core mode) | `src/lib/orderIdempotency.js` — file-backed + in-memory |
+| 3.2 | Backend unique constraint on message ID | **backend_core** (soft idempotent POST) |
+| 3.3 | Circuit breaker on Core API 5xx | `src/lib/coreApiCircuitBreaker.js` |
+| 3.4 | Failed-order dead letter queue | `src/lib/failedOrderDeadLetter.js` → `failed-orders/` |
+| 3.5 | Optional: `SEND_CONFIRMATIONS=true` | Already wired — enable on VPS `.env` |
+
+Backend (#45): `POST /api/transactions` returns `TransactionResponse` (`id`, `transactionReference`); duplicate `whatsapp_message_id` → HTTP 200 + existing row.
+
+### Phase 3 exit criteria
+
+- [ ] `npm test` passes (includes Phase 3 unit tests)
+- [ ] Same WhatsApp message twice → one transaction in dashboard (backend idempotency)
+- [ ] Force API 400/500 → JSON file in `failed-orders/` on VPS
+- [ ] After 5 consecutive Core API 5xx → Discord circuit alert, orders paused ~15 min
+- [ ] Optional: `SEND_CONFIRMATIONS=true` on staging VPS
 
 ---
 
@@ -157,4 +167,4 @@ Core API HTTP 401 auto re-login is **unchanged** (`coreApiClient.withAuthRetry`)
 
 ---
 
-*Last updated: 2026-06-09*
+*Last updated: 2026-06-08*

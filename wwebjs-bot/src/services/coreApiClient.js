@@ -4,6 +4,11 @@ const config = require("../config");
 const { resolvePackageMatch } = require("../lib/packageCatalogMatch");
 const { throwApiError } = require("../lib/formatApiError");
 const botAlerts = require("../lib/botAlerts");
+const { guardCoreApiCall } = require("../lib/coreApiCircuitBreaker");
+const {
+  extractTransactionRef,
+  isIdempotentReplay,
+} = require("../lib/transactionResponse");
 
 /** @type {{ token: string, expiresAt: number } | null} */
 let authCache = null;
@@ -177,13 +182,15 @@ async function checkCoreApiHealth() {
   try {
     const base = config.CORE_API_BASE_URL.replace(/\/+$/, "");
     const url = `${base}/api/users/whatsapp/${encodeURIComponent(HEALTH_PROBE_GROUP_ID)}`;
-    const res = await withAuthRetry((token) =>
-      fetch(url, {
-        headers: {
-          ...authHeaders(),
-          Authorization: `Bearer ${token}`,
-        },
-      })
+    const res = await guardCoreApiCall("core-health", () =>
+      withAuthRetry((token) =>
+        fetch(url, {
+          headers: {
+            ...authHeaders(),
+            Authorization: `Bearer ${token}`,
+          },
+        })
+      )
     );
 
     const body = await parseJsonResponse(res);
@@ -242,13 +249,15 @@ async function getClientByWhatsappGroup(whatsappGroupId) {
   const base = config.CORE_API_BASE_URL.replace(/\/+$/, "");
   const url = `${base}/api/users/whatsapp/${encodeURIComponent(whatsappGroupId)}`;
 
-  const res = await withAuthRetry((token) =>
-    fetch(url, {
-      headers: {
-        ...authHeaders(),
-        Authorization: `Bearer ${token}`,
-      },
-    })
+  const res = await guardCoreApiCall("client-lookup", () =>
+    withAuthRetry((token) =>
+      fetch(url, {
+        headers: {
+          ...authHeaders(),
+          Authorization: `Bearer ${token}`,
+        },
+      })
+    )
   );
 
   const body = await parseJsonResponse(res);
@@ -300,13 +309,15 @@ async function getPackages(clientKeycloakId, clientUserId = null) {
   const base = config.CORE_API_BASE_URL.replace(/\/+$/, "");
   const url = `${base}/api/packages?userId=${encodeURIComponent(clientKeycloakId)}`;
 
-  const res = await withAuthRetry((token) =>
-    fetch(url, {
-      headers: {
-        ...authHeaders(clientKeycloakId),
-        Authorization: `Bearer ${token}`,
-      },
-    })
+  const res = await guardCoreApiCall("packages", () =>
+    withAuthRetry((token) =>
+      fetch(url, {
+        headers: {
+          ...authHeaders(clientKeycloakId),
+          Authorization: `Bearer ${token}`,
+        },
+      })
+    )
   );
 
   const body = await parseJsonResponse(res);
@@ -433,22 +444,24 @@ async function createTransaction(
   }
   fields.created_via = "whatsapp";
 
-  const res = await withAuthRetry((token) => {
-    const form = new FormData();
-    for (const [key, value] of Object.entries(fields)) {
-      if (value !== undefined && value !== null && String(value).length > 0) {
-        form.append(key, String(value));
+  const res = await guardCoreApiCall("create-transaction", () =>
+    withAuthRetry((token) => {
+      const form = new FormData();
+      for (const [key, value] of Object.entries(fields)) {
+        if (value !== undefined && value !== null && String(value).length > 0) {
+          form.append(key, String(value));
+        }
       }
-    }
-    return fetch(txUrl, {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${token}`,
-        "X-User-Id": clientKeycloakId,
-      },
-      body: form,
-    });
-  });
+      return fetch(txUrl, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "X-User-Id": clientKeycloakId,
+        },
+        body: form,
+      });
+    })
+  );
 
   const body = await parseJsonResponse(res);
   if (!res.ok) {
@@ -476,7 +489,12 @@ async function createTransaction(
     });
   }
 
-  return { ...body, _packageMatch: packageMatch };
+  return {
+    ...body,
+    _packageMatch: packageMatch,
+    _transactionRef: extractTransactionRef(body),
+    _idempotentReplay: isIdempotentReplay(body),
+  };
 }
 
 module.exports = {

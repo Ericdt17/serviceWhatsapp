@@ -40,6 +40,13 @@ function apiAuthFailed() {
   return withPrefix("Échec connexion API LivSight. Vérifier identifiants bot.");
 }
 
+function apiCircuitOpen(minutes) {
+  const m = minutes != null ? minutes : "?";
+  return withPrefix(
+    `API LivSight indisponible (erreurs serveur). Pause commandes ~${m} min.`
+  );
+}
+
 function orderFailed({ phone, amount, quartier } = {}) {
   const tel = phone || "?";
   const montant = amount != null && amount !== "" ? amount : "?";
@@ -104,6 +111,7 @@ module.exports = {
   apiReconnecting,
   apiReconnected,
   apiAuthFailed,
+  apiCircuitOpen,
   orderFailed,
   groupNotLinked,
   groupLookupFailed,

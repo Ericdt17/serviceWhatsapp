@@ -298,6 +298,22 @@ function notifyCoreApiAuthFailure(_errorOrMessage) {
   alertWithCooldown("core-api-auth-failed", msg.apiAuthFailed(), config().errorCooldownMs);
 }
 
+function notifyCoreApiCircuitOpen({ operation, status } = {}) {
+  if (!config().webhookUrl) return;
+  const minutes = Math.ceil(
+    (Number(process.env.CORE_API_CIRCUIT_COOLDOWN_MS) || 900000) / 60000
+  );
+  const detail =
+    operation || status
+      ? ` (${[operation, status ? `HTTP ${status}` : null].filter(Boolean).join(", ")})`
+      : "";
+  alertWithCooldown(
+    "core-api-circuit-open",
+    msg.apiCircuitOpen(minutes) + detail,
+    config().errorCooldownMs
+  );
+}
+
 function isCoreApiAuthDown() {
   return coreApiAuthDown;
 }
@@ -479,6 +495,7 @@ module.exports = {
   notifyCoreApiReconnecting,
   notifyCoreApiReconnected,
   notifyCoreApiAuthFailure,
+  notifyCoreApiCircuitOpen,
   notifyCoreApiHealthDown,
   notifyCoreApiHealthRecovered,
   isCoreApiAuthDown,

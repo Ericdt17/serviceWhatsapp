@@ -15,6 +15,7 @@ auth-dev/
 # Database
 data/
 reports/
+failed-orders/
 # Logs
 *.log
 

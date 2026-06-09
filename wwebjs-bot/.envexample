@@ -136,6 +136,20 @@ BOT_ALERT_WEBHOOK_URL=
 # WA_SESSION_BACKUP_KEEP=7
 
 # ---------------------------
+# Order reliability (Phase 3)
+# ---------------------------
+# File-backed dedup for whatsapp_message_id (survives PM2 restart)
+# ORDER_IDEMPOTENCY_FILE=data/submitted-message-ids.json
+# ORDER_IDEMPOTENCY_MAX_ENTRIES=5000
+# Dead letter JSON when order save fails (inspect/replay on VPS)
+# FAILED_ORDERS_DIR=failed-orders
+# Pause Core API calls after N consecutive 5xx (default 5 failures, 15 min)
+# CORE_API_CIRCUIT_FAILURE_THRESHOLD=5
+# CORE_API_CIRCUIT_COOLDOWN_MS=900000
+# Optional: reply in group when order saved (reduces vendor resends)
+# SEND_CONFIRMATIONS=true
+
+# ---------------------------
 # Health check (Uptime Kuma)
 # ---------------------------
 # GET http://127.0.0.1:3099/health → 200 when WhatsApp + Core API auth OK

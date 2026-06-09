@@ -197,3 +197,11 @@ bash scripts/verify-bot-health.sh
 ```
 
 Fails with `"ok": false` if WhatsApp is disconnected or Core API auth is broken — expected after QR loss until rescanned.
+
+### Phase 3 — failed orders (dead letter)
+
+When order save fails (Core API 400/500, circuit open, etc.), the bot writes JSON under `wwebjs-bot/failed-orders/` on the VPS. Inspect files for `messageText`, `parsed`, and `error`; replay manually via dashboard or curl.
+
+Idempotency: backend dedupes on `whatsapp_message_id`; bot also keeps `data/submitted-message-ids.json` across PM2 restarts.
+
+Optional: `SEND_CONFIRMATIONS=true` in `.env` to reply in the group when an order is saved.

@@ -14,9 +14,17 @@ const {
 const coreApi = require("../services/coreApiClient");
 const botAlerts = require("../lib/botAlerts");
 const { logStructuredError } = require("../lib/formatApiError");
+const orderIdempotency = require("../lib/orderIdempotency");
+const failedOrderDeadLetter = require("../lib/failedOrderDeadLetter");
+const { extractTransactionRef } = require("../lib/transactionResponse");
 
 /** groupId:author → timestamp of last format-reminder sent (ms) */
 const formatReminderCooldownByKey = new Map();
+
+function persistFailedOrder(ctx, error) {
+  failedOrderDeadLetter.writeFailedOrder({ ...ctx, error });
+  botAlerts.notifyDeliverySaveFailed(error);
+}
 
 /**
  * Handle an incoming message as a potential new delivery.
@@ -33,9 +41,6 @@ const formatReminderCooldownByKey = new Map();
  *   whatsappGroupId: string,
  * }} ctx
  */
-/** @type {Set<string>} */
-const submittedMessageIds = new Set();
-
 async function saveDelivery({
   parsed,
   messageText,
@@ -46,62 +51,76 @@ async function saveDelivery({
   config,
   client,
   viaAi,
+  whatsappGroupId,
 }) {
   if (config.USE_CORE_API) {
     if (!linkedClient?.keycloakId) {
       throw new Error("No linked client keycloakId for core API submission");
     }
-    if (submittedMessageIds.has(whatsappMessageId)) {
-      console.log(`   ⏭️  Transaction already submitted for message ${whatsappMessageId}`);
-      return { skipped: true };
-    }
-
-    const result = await coreApi.createTransaction(
-      linkedClient.keycloakId,
-      parsed,
-      messageText,
-      whatsappMessageId,
-      { clientUserId: linkedClient.raw?.id ?? linkedClient.raw?.user_id }
-    );
-    submittedMessageIds.add(whatsappMessageId);
-
-    const ref =
-      result.id ||
-      result.transactionId ||
-      result.transactionReference ||
-      result.reference ||
-      "OK";
-
-    console.log("\n" + "=".repeat(60));
-    console.log(`   ✅ TRANSACTION CORE API (${viaAi ? "AI" : "strict"})`);
-    console.log("=".repeat(60));
-    console.log(`   🔑 Client: ${linkedClient.keycloakId}`);
-    console.log(`   📎 Ref: ${ref}`);
-    console.log(`   📱 Numéro: ${parsed.phone || "Non trouvé"}`);
-    console.log(`   📦 Produits: ${parsed.items}`);
-    console.log(`   💰 Montant: ${parsed.amount_due || 0} FCFA`);
-    console.log(`   📍 Quartier: ${parsed.quartier || "Non spécifié"}`);
-    if (result._packageMatch) {
+    if (!orderIdempotency.tryAcquire(whatsappMessageId)) {
       console.log(
-        `   🏷️  Source: ${result._packageMatch.source} (${result._packageMatch.matchMethod}) → ${result._packageMatch.package_name}`
+        `   ⏭️  Transaction already submitted for message ${whatsappMessageId}`
       );
+      return { skipped: true, localIdempotent: true };
     }
-    console.log("=".repeat(60) + "\n");
 
-    if (config.SEND_CONFIRMATIONS === "true" && config.GROUP_ID) {
-      try {
-        const confirmMsg =
-          `✅ Commande enregistrée (${ref})\n` +
-          `📱 ${parsed.phone}\n` +
-          `📦 ${parsed.items}\n` +
-          `💰 ${parsed.amount_due || 0} FCFA`;
-        const chat = await client.getChatById(config.GROUP_ID);
-        await chat.sendMessage(confirmMsg);
-      } catch {
-        console.log("   ⚠️  Could not send confirmation message");
+    try {
+      const result = await coreApi.createTransaction(
+        linkedClient.keycloakId,
+        parsed,
+        messageText,
+        whatsappMessageId,
+        { clientUserId: linkedClient.raw?.id ?? linkedClient.raw?.user_id }
+      );
+
+      const ref =
+        result._transactionRef ||
+        extractTransactionRef(result);
+
+      orderIdempotency.markSubmitted(whatsappMessageId, { transactionRef: ref });
+
+      console.log("\n" + "=".repeat(60));
+      if (result._idempotentReplay) {
+        console.log(`   ♻️  TRANSACTION CORE API — idempotent replay (${viaAi ? "AI" : "strict"})`);
+      } else {
+        console.log(`   ✅ TRANSACTION CORE API (${viaAi ? "AI" : "strict"})`);
       }
+      console.log("=".repeat(60));
+      console.log(`   🔑 Client: ${linkedClient.keycloakId}`);
+      console.log(`   📎 Ref: ${ref}`);
+      console.log(`   📱 Numéro: ${parsed.phone || "Non trouvé"}`);
+      console.log(`   📦 Produits: ${parsed.items}`);
+      console.log(`   💰 Montant: ${parsed.amount_due || 0} FCFA`);
+      console.log(`   📍 Quartier: ${parsed.quartier || "Non spécifié"}`);
+      if (result._packageMatch) {
+        console.log(
+          `   🏷️  Source: ${result._packageMatch.source} (${result._packageMatch.matchMethod}) → ${result._packageMatch.package_name}`
+        );
+      }
+      console.log("=".repeat(60) + "\n");
+
+      if (
+        config.SEND_CONFIRMATIONS === "true" &&
+        config.GROUP_ID &&
+        !result._idempotentReplay
+      ) {
+        try {
+          const confirmMsg =
+            `✅ Commande enregistrée (${ref})\n` +
+            `📱 ${parsed.phone}\n` +
+            `📦 ${parsed.items}\n` +
+            `💰 ${parsed.amount_due || 0} FCFA`;
+          const chat = await client.getChatById(config.GROUP_ID);
+          await chat.sendMessage(confirmMsg);
+        } catch {
+          console.log("   ⚠️  Could not send confirmation message");
+        }
+      }
+      return { id: ref };
+    } catch (coreErr) {
+      orderIdempotency.release(whatsappMessageId);
+      throw coreErr;
     }
-    return { id: ref };
   }
 
   const existingByMsg = await findDeliveryByMessageId(whatsappMessageId);
@@ -203,10 +222,21 @@ async function handleDelivery({
         config,
         client,
         viaAi: false,
+        whatsappGroupId,
       });
     } catch (dbError) {
       logStructuredError("Erreur lors de la sauvegarde", dbError);
-      botAlerts.notifyDeliverySaveFailed(dbError);
+      persistFailedOrder(
+        {
+          parsed: deliveryData,
+          messageText,
+          whatsappMessageId,
+          linkedClient,
+          whatsappGroupId,
+          viaAi: false,
+        },
+        dbError
+      );
     }
     return;
   }
@@ -232,6 +262,10 @@ async function handleDelivery({
         } else {
           await runAiFallback();
         }
+      } else if (orderIdempotency.isSubmitted(whatsappMessageId)) {
+        console.log(
+          `   ⏭️  AI fallback skipped — transaction already submitted for message ${whatsappMessageId}`
+        );
       } else {
         await runAiFallback();
       }
@@ -274,11 +308,22 @@ async function handleDelivery({
           config,
           client,
           viaAi: true,
+          whatsappGroupId,
         });
         savedViaAi = true;
       } catch (dbAiError) {
         logStructuredError("Erreur lors de la sauvegarde (AI)", dbAiError);
-        botAlerts.notifyDeliverySaveFailed(dbAiError);
+        persistFailedOrder(
+          {
+            parsed: normalized,
+            messageText,
+            whatsappMessageId,
+            linkedClient,
+            whatsappGroupId,
+            viaAi: true,
+          },
+          dbAiError
+        );
       }
     }
   } else if (looksMalformed && config.AI_DELIVERY_FALLBACK_ENABLED) {
