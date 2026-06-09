@@ -166,7 +166,7 @@ jobs:
 
             echo "→ Health smoke (local + optional public URL)..."
             export BOT_HEALTH_PUBLIC_URL="${BOT_HEALTH_PUBLIC_URL:-}"
-            chmod +x wwebjs-bot/scripts/verify-bot-health.sh
-            bash wwebjs-bot/scripts/verify-bot-health.sh
+            chmod +x scripts/verify-bot-health.sh
+            bash scripts/verify-bot-health.sh
 
             echo "✓ Core bot deploy complete"
