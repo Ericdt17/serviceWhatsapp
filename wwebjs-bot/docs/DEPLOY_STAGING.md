@@ -117,15 +117,17 @@ Do not delete `.wwebjs_auth/session-livsight-bot-core-staging/`.
 
 ---
 
-## 5. Uptime Kuma
+## 5. Uptime Kuma & domaine health
 
-Health endpoint (same VPS as bot): `http://127.0.0.1:3099/health` → expect HTTP **200** when WhatsApp is connected.
+| Où | URL curl |
+|----|----------|
+| **Sur le VPS** | `curl -s http://127.0.0.1:3099/health \| jq` |
+| **Public (après DNS + Nginx)** | `curl -s https://bot-health.livsight.com/health \| jq` |
 
-See [UPTIME_KUMA.md](./UPTIME_KUMA.md) for monitor setup.
+DNS : enregistrement **A** `bot-health.livsight.com` → IP du bot VPS.  
+Nginx : [deploy/nginx-bot-health.conf.example](../deploy/nginx-bot-health.conf.example)
 
-```bash
-curl -s http://127.0.0.1:3099/health
-```
+Voir [UPTIME_KUMA.md](./UPTIME_KUMA.md).
 
 ---
 

@@ -9,6 +9,7 @@ const {
 const { getGroup } = require("../utils/group-manager");
 const coreApi = require("../services/coreApiClient");
 const botAlerts = require("../lib/botAlerts");
+const { logStructuredError } = require("../lib/formatApiError");
 const { handleStatusUpdate } = require("./statusUpdateHandler");
 const { handleDelivery } = require("./deliveryHandler");
 
@@ -136,7 +137,13 @@ async function onMessage(msg, client) {
           `   📋 Linked client keycloakId: ${linkedClient.keycloakId} (${linkedClient.source})`
         );
       } catch (lookupErr) {
-        console.error(`   ⚠️  Core API client lookup failed: ${lookupErr.message}`);
+        logStructuredError("Core API client lookup failed", lookupErr);
+        if (lookupErr.status !== 401 && lookupErr.status !== 403) {
+          botAlerts.notifyClientLookupFailed(lookupErr, {
+            groupName,
+            whatsappGroupId,
+          });
+        }
         return;
       }
     } else {

@@ -9,6 +9,7 @@ const { generateDailyReport } = require("./lib/daily-report");
 const botAlerts = require("./lib/botAlerts");
 const { startBotHealthServer } = require("./lib/botHealthServer");
 const { onMessage } = require("./handlers/messageHandler");
+const coreApi = require("./services/coreApiClient");
 
 // Log startup time
 const startupStartTime = Date.now();
@@ -93,7 +94,6 @@ const client = new Client({
 
 // Show QR code in terminal when authentication needed
 let qrShown = false;
-botAlerts.init({ getQrShown: () => qrShown, client });
 
 if (config.AI_DELIVERY_FALLBACK_ENABLED && !config.OPENAI_API_KEY) {
   console.warn("[config] AI_DELIVERY_FALLBACK_ENABLED=true but OPENAI_API_KEY is missing — AI fallback will be skipped on every malformed message.");
@@ -189,11 +189,42 @@ async function getBotHealthStatus() {
   } catch {
     /* client not initialized yet */
   }
-  const ready = clientReady || state === "CONNECTED";
-  return { ready, state, clientReady };
+  const whatsappReady = clientReady || state === "CONNECTED";
+
+  let coreApiOk = true;
+  let coreApiError = null;
+  let coreApiSkipped = !config.USE_CORE_API;
+
+  if (config.USE_CORE_API && whatsappReady) {
+    const coreCheck = await coreApi.checkCoreApiHealth();
+    coreApiOk = coreCheck.ok;
+    coreApiError = coreCheck.error || null;
+    coreApiSkipped = Boolean(coreCheck.skipped);
+    if (!coreApiOk) {
+      botAlerts.notifyCoreApiHealthDown();
+    } else {
+      botAlerts.notifyCoreApiHealthRecovered();
+    }
+  }
+
+  const ready = whatsappReady && coreApiOk;
+  return {
+    ready,
+    state,
+    clientReady,
+    coreApiOk,
+    coreApiError,
+    coreApiSkipped,
+  };
 }
 
 startBotHealthServer({ getStatus: getBotHealthStatus });
+
+botAlerts.init({
+  getQrShown: () => qrShown,
+  client,
+  getHealth: getBotHealthStatus,
+});
 
 function logListenerDiagnostics(label) {
   const messageListeners = client.listenerCount("message");
@@ -239,7 +270,7 @@ client.on("ready", async () => {
   clientReady = true;
   botAlerts.notifyReady();
   const startupDuration = ((Date.now() - startupStartTime) / 1000).toFixed(1);
-  botAlerts.notifyStartup(startupDuration);
+  botAlerts.notifyWhatsAppReady(startupDuration);
   console.log("\n" + "=".repeat(60));
   console.log("✅ BOT IS READY!");
   console.log("=".repeat(60));

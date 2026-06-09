@@ -1,0 +1,20 @@
+# Nginx — WhatsApp bot health check (Uptime Kuma / public probe)
+# Copy to: /etc/nginx/sites-available/bot-health.livsight.com
+# Then: sudo ln -s ... sites-enabled/ && sudo nginx -t && sudo systemctl reload nginx
+# SSL: sudo certbot --nginx -d bot-health.livsight.com
+
+server {
+    listen 80;
+    server_name bot-health.livsight.com;
+
+    location /health {
+        proxy_pass http://127.0.0.1:3099/health;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+    }
+
+    location = / {
+        return 404;
+    }
+}

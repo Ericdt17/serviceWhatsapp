@@ -3,23 +3,34 @@
  * Set BOT_ALERT_WEBHOOK_URL (and optionally BOT_ALERT_WEBHOOK_TYPE).
  */
 
+const msg = require("./botAlertMessages");
+
 const processStart = Date.now();
 
 let getQrShown = () => false;
+let getHealthFn = null;
 let disconnectTimer = null;
+let disconnectReminderTimer = null;
 let lastDisconnectReason = "";
 let qrStaleTimer = null;
 let stateWatchTimer = null;
+let heartbeatTimer = null;
 let firstNotConnectedAt = null;
 let startupWebhookSent = false;
+let hadDisconnectSinceLastReady = false;
+let coreApiAuthDown = false;
+let coreApiReconnectInProgress = false;
 const lastCooldownSent = new Map();
 
 function config() {
   return {
     webhookUrl: (process.env.BOT_ALERT_WEBHOOK_URL || "").trim(),
     type: inferWebhookType(),
-    disconnectMs:
-      Number(process.env.BOT_ALERT_DISCONNECT_MS) || 5 * 60 * 1000,
+    disconnectImmediate:
+      process.env.BOT_ALERT_DISCONNECT_IMMEDIATE !== "false" &&
+      process.env.BOT_ALERT_DISCONNECT_IMMEDIATE !== "0",
+    disconnectReminderMs:
+      Number(process.env.BOT_ALERT_DISCONNECT_REMINDER_MS) || 5 * 60 * 1000,
     stateGraceMs:
       Number(process.env.BOT_ALERT_STATE_GRACE_MS) || 3 * 60 * 1000,
     stateIntervalMs:
@@ -30,6 +41,13 @@ function config() {
       Number(process.env.BOT_ALERT_QR_STALE_MS) || 20 * 60 * 1000,
     errorCooldownMs:
       Number(process.env.BOT_ALERT_ERROR_COOLDOWN_MS) || 15 * 60 * 1000,
+    heartbeatEnabled:
+      process.env.BOT_ALERT_HEARTBEAT_ENABLED !== "false" &&
+      process.env.BOT_ALERT_HEARTBEAT_ENABLED !== "0",
+    heartbeatHours: Math.max(
+      1,
+      Number(process.env.BOT_ALERT_HEARTBEAT_HOURS) || 24
+    ),
   };
 }
 
@@ -78,6 +96,10 @@ function clearDisconnectAlertTimer() {
     clearTimeout(disconnectTimer);
     disconnectTimer = null;
   }
+  if (disconnectReminderTimer) {
+    clearTimeout(disconnectReminderTimer);
+    disconnectReminderTimer = null;
+  }
 }
 
 function clearQrStaleTimer() {
@@ -87,22 +109,49 @@ function clearQrStaleTimer() {
   }
 }
 
+function clearHeartbeatTimer() {
+  if (heartbeatTimer) {
+    clearInterval(heartbeatTimer);
+    heartbeatTimer = null;
+  }
+}
+
 function scheduleQrStaleAlert(qrStaleMs) {
   clearQrStaleTimer();
   qrStaleTimer = setTimeout(() => {
     qrStaleTimer = null;
     alertWithCooldown(
       "qr-stale",
-      `[Livsight bot] QR code still not scanned after ${Math.round(
-        qrStaleMs / 60000
-      )} minutes. Link the device in WhatsApp.`,
+      msg.qrStale(Math.round(qrStaleMs / 60000)),
       qrStaleMs
     );
   }, qrStaleMs);
 }
 
-function init({ getQrShown: qrFn, client }) {
+function startDailyHeartbeat() {
+  clearHeartbeatTimer();
+  const { heartbeatEnabled, heartbeatHours, webhookUrl } = config();
+  if (!webhookUrl || !heartbeatEnabled || typeof getHealthFn !== "function") {
+    return;
+  }
+
+  const intervalMs = heartbeatHours * 60 * 60 * 1000;
+  heartbeatTimer = setInterval(async () => {
+    try {
+      const status = await getHealthFn();
+      if (status?.ready) {
+        sendBotAlert(msg.heartbeat());
+      }
+    } catch {
+      /* ignore heartbeat errors */
+    }
+  }, intervalMs);
+  heartbeatTimer.unref?.();
+}
+
+function init({ getQrShown: qrFn, client, getHealth }) {
   getQrShown = typeof qrFn === "function" ? qrFn : () => false;
+  getHealthFn = typeof getHealth === "function" ? getHealth : null;
   if (!config().webhookUrl) {
     console.log(
       "[botAlerts] BOT_ALERT_WEBHOOK_URL not set — deeper alerts disabled"
@@ -110,33 +159,40 @@ function init({ getQrShown: qrFn, client }) {
     return;
   }
   console.log(
-    `[botAlerts] Webhook alerts enabled (${config().type}), disconnect after ${
-      config().disconnectMs / 60000
-    }m, state check every ${config().stateIntervalMs / 60000}m`
+    `[botAlerts] Webhook alerts enabled (${config().type}), heartbeat every ${
+      config().heartbeatHours
+    }h`
   );
   startPeriodicStateCheck(client);
+  startDailyHeartbeat();
 }
 
-function notifyAuthFailure(msg) {
+function notifyAuthFailure(_msg) {
   if (!config().webhookUrl) return;
-  sendBotAlert(
-    `[Livsight bot] AUTH FAILURE — session may need re-linking.\n${String(
-      msg
-    ).slice(0, 1500)}`
-  );
+  sendBotAlert(msg.waAuthFailure());
 }
 
 function notifyDisconnected(reason) {
   if (!config().webhookUrl) return;
+  hadDisconnectSinceLastReady = true;
   lastDisconnectReason = String(reason || "unknown");
   clearDisconnectAlertTimer();
-  const ms = config().disconnectMs;
-  disconnectTimer = setTimeout(() => {
-    disconnectTimer = null;
-    sendBotAlert(
-      `[Livsight bot] Still disconnected after ${ms / 60000} min. Reason: ${lastDisconnectReason}`
-    );
-  }, ms);
+
+  if (config().disconnectImmediate) {
+    sendBotAlert(msg.waDisconnected());
+  }
+
+  const reminderMs = config().disconnectReminderMs;
+  if (reminderMs > 0) {
+    disconnectReminderTimer = setTimeout(() => {
+      disconnectReminderTimer = null;
+      alertWithCooldown(
+        "wa-disconnect-reminder",
+        msg.waDisconnectedReminder(Math.round(reminderMs / 60000), lastDisconnectReason),
+        reminderMs
+      );
+    }, reminderMs);
+  }
 }
 
 function notifyReady() {
@@ -152,46 +208,127 @@ function onQrShown() {
 
 function notifyClientError(error) {
   if (!config().webhookUrl) return;
-  const msg = error?.message || String(error);
   alertWithCooldown(
     "client-error",
-    `[Livsight bot] Client error (throttled):\n${msg.slice(0, 1500)}`,
+    msg.genericError("WhatsApp", error?.message || String(error)),
     config().errorCooldownMs
   );
 }
 
-/** WhatsApp → DB delivery insert failed (throttled). */
-function notifyDeliverySaveFailed(detail) {
+function notifyDeliverySaveFailed(error) {
   if (!config().webhookUrl) return;
   const cooldown =
     Number(process.env.BOT_ALERT_DELIVERY_DB_COOLDOWN_MS) || 300000;
+  const ctx = error?.context || {};
   alertWithCooldown(
-    "delivery-db-error",
-    `[Livsight bot] Delivery failed to save to DB:\n${String(detail).slice(0, 1500)}`,
+    "delivery-save-error",
+    msg.orderFailed({
+      phone: ctx.receiver_phone,
+      amount: ctx.amount,
+      quartier: ctx.destination_street,
+    }),
     cooldown
   );
 }
 
-/** Reminders worker: poll/mark DB threw (throttled). */
+function notifyClientLookupFailed(error, { groupName, whatsappGroupId } = {}) {
+  if (!config().webhookUrl) return;
+  const status = error?.status;
+  const text =
+    status === 404
+      ? msg.groupNotLinked(groupName)
+      : msg.groupLookupFailed(groupName);
+  alertWithCooldown(
+    `client-lookup:${whatsappGroupId || "unknown"}`,
+    text,
+    config().errorCooldownMs
+  );
+}
+
+function notifyCoreApiSessionLost() {
+  if (!config().webhookUrl) return;
+  coreApiAuthDown = true;
+  alertWithCooldown("core-api-session-lost", msg.apiSessionLost(), config().errorCooldownMs);
+}
+
+function notifyCoreApiReconnecting() {
+  if (!config().webhookUrl) return;
+  if (coreApiReconnectInProgress) return;
+  coreApiReconnectInProgress = true;
+  alertWithCooldown(
+    "core-api-reconnecting",
+    msg.apiReconnecting(),
+    60 * 1000
+  );
+}
+
+function notifyCoreApiReconnected() {
+  if (!config().webhookUrl) return;
+  coreApiReconnectInProgress = false;
+  coreApiAuthDown = false;
+  alertWithCooldown(
+    "core-api-reconnected",
+    msg.apiReconnected(),
+    60 * 1000
+  );
+}
+
+function notifyCoreApiAuthFailure(_errorOrMessage) {
+  if (!config().webhookUrl) return;
+  coreApiReconnectInProgress = false;
+  coreApiAuthDown = true;
+  alertWithCooldown("core-api-auth-failed", msg.apiAuthFailed(), config().errorCooldownMs);
+}
+
+function isCoreApiAuthDown() {
+  return coreApiAuthDown;
+}
+
+function notifyCoreApiHealthDown() {
+  if (!coreApiAuthDown && !coreApiReconnectInProgress) {
+    notifyCoreApiSessionLost();
+  }
+}
+
+function notifyCoreApiHealthRecovered() {
+  if (coreApiAuthDown) {
+    notifyCoreApiReconnected();
+  }
+}
+
 function notifyRemindersTickFailed(err) {
   if (!config().webhookUrl) return;
   const cooldown =
     Number(process.env.BOT_ALERT_REMINDERS_TICK_COOLDOWN_MS) || 600000;
-  const msg = err?.message || String(err);
   alertWithCooldown(
     "reminders-tick",
-    `[Livsight bot] Reminders worker tick failed:\n${msg.slice(0, 1500)}`,
+    msg.genericError("Rappels", err?.message || String(err)),
     cooldown
   );
 }
 
-/**
- * Bot came online and WhatsApp `ready` fired.
- * Default: one Discord/Slack message per process (avoids spam on reconnect).
- * Set BOT_ALERT_STARTUP_EVERY_READY=true for a message on every `ready`.
- * Set BOT_ALERT_STARTUP_ENABLED=false to disable entirely.
- */
-function notifyStartup(durationSeconds) {
+function notifyWhatsAppReady(_durationSeconds) {
+  if (!config().webhookUrl) return;
+  const disabled =
+    process.env.BOT_ALERT_STARTUP_ENABLED === "false" ||
+    process.env.BOT_ALERT_STARTUP_ENABLED === "0";
+  if (disabled) return;
+
+  const reconnectAlertsEnabled =
+    process.env.BOT_ALERT_RECONNECT_ENABLED !== "false" &&
+    process.env.BOT_ALERT_RECONNECT_ENABLED !== "0";
+
+  if (hadDisconnectSinceLastReady && reconnectAlertsEnabled) {
+    hadDisconnectSinceLastReady = false;
+    sendBotAlert(msg.waReconnected());
+    return;
+  }
+
+  hadDisconnectSinceLastReady = false;
+  notifyStartup();
+}
+
+function notifyStartup() {
   if (!config().webhookUrl) return;
   const disabled =
     process.env.BOT_ALERT_STARTUP_ENABLED === "false" ||
@@ -202,63 +339,55 @@ function notifyStartup(durationSeconds) {
     process.env.BOT_ALERT_STARTUP_EVERY_READY === "1";
   if (!everyReady && startupWebhookSent) return;
   startupWebhookSent = true;
-  sendBotAlert(
-    `[Livsight bot] Bot is online and ready (startup: ${durationSeconds}s).`
-  );
+  sendBotAlert(msg.startup());
 }
 
-/** Message event handler threw unexpectedly (throttled). */
-function notifyMessageError(error, from) {
+function notifyMessageError(error, source) {
   if (!config().webhookUrl) return;
-  const msg = error?.message || String(error);
   alertWithCooldown(
-    "message-error",
-    `[Livsight bot] Error processing message from ${from || "unknown"}:\n${msg.slice(0, 1500)}`,
+    `message-error:${source || "unknown"}`,
+    msg.genericError(source || "Message", error?.message || String(error)),
     config().errorCooldownMs
   );
 }
 
-/** Daily report generation or send failed (throttled). */
 function notifyReportFailed(error) {
   if (!config().webhookUrl) return;
-  const msg = error?.message || String(error);
   alertWithCooldown(
     "report-failed",
-    `[Livsight bot] Daily report failed:\n${msg.slice(0, 1500)}`,
+    msg.genericError("Rapport journalier", error?.message || String(error)),
     config().errorCooldownMs
   );
 }
 
-/** API route threw an unexpected error (DB connection down, unhandled 500, etc.) — throttled. */
 function notifyApiError(method, path, error) {
   if (!config().webhookUrl) return;
-  const msg = error?.message || String(error);
   alertWithCooldown(
     `api-error:${method}:${path}`,
-    `[Livsight API] Error on ${method} ${path}:\n${msg.slice(0, 1500)}`,
+    msg.genericError(`API ${method} ${path}`, error?.message || String(error)),
     config().errorCooldownMs
   );
 }
 
-/** Uncaught process-level error (throttled). */
 function notifyProcessError(kind, error) {
   if (!config().webhookUrl) return;
-  const msg = error?.message || String(error);
   alertWithCooldown(
     `process-error-${kind}`,
-    `[Livsight bot] Process ${kind}:\n${msg.slice(0, 1500)}`,
+    msg.genericError(`Processus ${kind}`, error?.message || String(error)),
     config().errorCooldownMs
   );
 }
 
-/** One or more reminder sends failed or skipped as send in this tick (throttled). */
 function notifyRemindersSendFailures({ count, sample }) {
   if (!config().webhookUrl || !count) return;
   const cooldown =
     Number(process.env.BOT_ALERT_REMINDERS_SEND_COOLDOWN_MS) || 600000;
   alertWithCooldown(
     "reminders-send-batch",
-    `[Livsight bot] ${count} reminder target(s) failed or could not send (this poll cycle). Example: ${String(sample || "").slice(0, 500)}`,
+    msg.genericError(
+      "Rappels",
+      `${count} envoi(s) échoué(s). Ex: ${String(sample || "").slice(0, 200)}`
+    ),
     cooldown
   );
 }
@@ -283,22 +412,39 @@ function startPeriodicStateCheck(client) {
       if (Date.now() - firstNotConnectedAt >= config().notConnectedMs) {
         alertWithCooldown(
           "not-connected",
-          `[Livsight bot] WhatsApp state is not CONNECTED for >${
-            config().notConnectedMs / 60000
-          } min (current: ${state}). Process may be up but session is not ready.`,
+          msg.waNotConnected(
+            Math.round(config().notConnectedMs / 60000),
+            state
+          ),
           Math.min(config().notConnectedMs, 30 * 60 * 1000)
         );
       }
     } catch {
-      // getState can throw before the client is initialised; ignore
+      /* getState can throw before init */
     }
   };
 
-  stateWatchTimer = setInterval(
-    tick,
-    config().stateIntervalMs
-  );
+  stateWatchTimer = setInterval(tick, config().stateIntervalMs);
   stateWatchTimer.unref?.();
+}
+
+/** Reset module state between Jest tests. */
+function __resetForTests() {
+  clearDisconnectAlertTimer();
+  clearQrStaleTimer();
+  clearHeartbeatTimer();
+  if (stateWatchTimer) {
+    clearInterval(stateWatchTimer);
+    stateWatchTimer = null;
+  }
+  lastCooldownSent.clear();
+  startupWebhookSent = false;
+  hadDisconnectSinceLastReady = false;
+  coreApiAuthDown = false;
+  coreApiReconnectInProgress = false;
+  firstNotConnectedAt = null;
+  lastDisconnectReason = "";
+  getHealthFn = null;
 }
 
 module.exports = {
@@ -309,11 +455,21 @@ module.exports = {
   onQrShown,
   notifyClientError,
   notifyDeliverySaveFailed,
+  notifyClientLookupFailed,
+  notifyCoreApiSessionLost,
+  notifyCoreApiReconnecting,
+  notifyCoreApiReconnected,
+  notifyCoreApiAuthFailure,
+  notifyCoreApiHealthDown,
+  notifyCoreApiHealthRecovered,
+  isCoreApiAuthDown,
   notifyRemindersTickFailed,
   notifyRemindersSendFailures,
+  notifyWhatsAppReady,
   notifyStartup,
   notifyMessageError,
   notifyReportFailed,
   notifyProcessError,
   notifyApiError,
+  __resetForTests,
 };

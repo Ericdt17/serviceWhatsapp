@@ -13,6 +13,7 @@ const {
 } = require("../lib/aiDeliveryExtract");
 const coreApi = require("../services/coreApiClient");
 const botAlerts = require("../lib/botAlerts");
+const { logStructuredError } = require("../lib/formatApiError");
 
 /** groupId:author → timestamp of last format-reminder sent (ms) */
 const formatReminderCooldownByKey = new Map();
@@ -204,8 +205,8 @@ async function handleDelivery({
         viaAi: false,
       });
     } catch (dbError) {
-      console.error("   ❌ Erreur lors de la sauvegarde:", dbError.message);
-      botAlerts.notifyDeliverySaveFailed(dbError.message);
+      logStructuredError("Erreur lors de la sauvegarde", dbError);
+      botAlerts.notifyDeliverySaveFailed(dbError);
     }
     return;
   }
@@ -276,8 +277,8 @@ async function handleDelivery({
         });
         savedViaAi = true;
       } catch (dbAiError) {
-        console.error("   ❌ Erreur lors de la sauvegarde (AI):", dbAiError.message);
-        botAlerts.notifyDeliverySaveFailed(dbAiError.message);
+        logStructuredError("Erreur lors de la sauvegarde (AI)", dbAiError);
+        botAlerts.notifyDeliverySaveFailed(dbAiError);
       }
     }
   } else if (looksMalformed && config.AI_DELIVERY_FALLBACK_ENABLED) {

@@ -14,6 +14,8 @@
 #
 # CORE_BOT_USERNAME=whatsapp-bot
 # CORE_BOT_PASSWORD=<staging password for whatsapp-bot>
+# Refresh JWT this many ms before exp (default 60000)
+# CORE_TOKEN_REFRESH_BUFFER_MS=60000
 #
 # CORE_DEPARTURE_CITY=Douala
 # CORE_DEPARTURE_REGION=Littoral
@@ -108,11 +110,22 @@ OPENAI_API_KEY=
 # ---------------------------
 # Server Settings → Integrations → Webhooks → New Webhook → copy URL
 BOT_ALERT_WEBHOOK_URL=
+# Alert when WhatsApp reconnects after disconnected (default: true)
+# BOT_ALERT_RECONNECT_ENABLED=true
+# Alert on every ready event including reconnect (default: false — use RECONNECT instead)
+# BOT_ALERT_STARTUP_EVERY_READY=false
+# Immediate Discord alert on WhatsApp disconnect (default: true)
+# BOT_ALERT_DISCONNECT_IMMEDIATE=true
+# Optional reminder if still disconnected after 5 min (default: 300000 ms)
+# BOT_ALERT_DISCONNECT_REMINDER_MS=300000
+# Daily heartbeat when WhatsApp + Core API OK (default: every 24h)
+# BOT_ALERT_HEARTBEAT_ENABLED=true
+# BOT_ALERT_HEARTBEAT_HOURS=24
 
 # ---------------------------
 # Health check (Uptime Kuma)
 # ---------------------------
-# GET http://127.0.0.1:3099/health → 200 when WhatsApp connected
+# GET http://127.0.0.1:3099/health → 200 when WhatsApp + Core API auth OK
 BOT_HEALTH_PORT=3099
 BOT_HEALTH_BIND=127.0.0.1
 

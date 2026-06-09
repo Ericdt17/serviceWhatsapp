@@ -4,9 +4,9 @@ const http = require("http");
 
 /**
  * Minimal HTTP server for Uptime Kuma / load balancers.
- * GET /health → 200 when bot is ready, 503 otherwise.
+ * GET /health → 200 when WhatsApp is ready AND Core API auth works (core mode), else 503.
  *
- * @param {{ getStatus: () => Promise<{ ready: boolean, state?: string|null, clientReady?: boolean }> }} options
+ * @param {{ getStatus: () => Promise<{ ready: boolean, state?: string|null, clientReady?: boolean, coreApiOk?: boolean, coreApiError?: string|null, coreApiSkipped?: boolean }> }} options
  * @returns {{ server: import('http').Server, port: number } | null}
  */
 function startBotHealthServer(options) {
@@ -34,6 +34,11 @@ function startBotHealthServer(options) {
         ready: Boolean(status.ready),
         whatsappState: status.state ?? null,
         clientReady: Boolean(status.clientReady),
+        coreApiOk:
+          status.coreApiSkipped === true
+            ? null
+            : status.coreApiOk !== false,
+        coreApiError: status.coreApiError ?? null,
         uptimeSeconds: Math.floor(process.uptime()),
         timestamp: new Date().toISOString(),
       };
