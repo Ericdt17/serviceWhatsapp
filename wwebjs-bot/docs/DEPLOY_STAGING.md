@@ -73,7 +73,11 @@ pm2 startup   # follow printed command
 | `GH_USERNAME` | GitHub user for `git pull` on VPS |
 | `GH_TOKEN` | PAT with `repo` read access to `livSight/serviceWhatsapp` |
 
-CD workflow: `.github/workflows/cd-bot-core.yml` (optional env `BOT_CORE_DEPLOY_PATH`, default `/opt/livsight-whatsapp-core`).
+Auto-deploy: `.github/workflows/ci.yml` job `deploy-bot` (runs after tests pass on `main`).
+
+Manual deploy: Actions → **CD Bot Core** → Run workflow (skips CI).
+
+Optional env `BOT_CORE_DEPLOY_PATH`, default `/opt/livsight-whatsapp-core`.
 
 ---
 

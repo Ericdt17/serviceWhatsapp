@@ -1,12 +1,9 @@
 name: CD Bot Core
 
+# Auto-deploy runs in CI workflow (deploy-bot job) after tests pass.
+# This workflow is for manual/emergency deploy only (skips CI gate).
+
 on:
-  push:
-    branches:
-      - main
-    paths:
-      - 'wwebjs-bot/**'
-      - '.github/workflows/cd-bot-core.yml'
   workflow_dispatch:
 
 jobs:

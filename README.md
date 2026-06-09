@@ -53,4 +53,4 @@ See [wwebjs-bot/README.md](wwebjs-bot/README.md) and [wwebjs-bot/docs/DEPLOY_STA
 ## CI/CD
 
 - **CI** — `wwebjs-bot` Jest + Postgres integration (`.github/workflows/ci.yml`)
-- **CD** — `/opt/livsight-whatsapp-core` via `cd-bot-core.yml` (requires GitHub Actions secrets — see [DEPLOY_STAGING.md](wwebjs-bot/docs/DEPLOY_STAGING.md))
+- **CD** — auto via `ci.yml` (`deploy-bot` after tests on `main`); manual via `cd-bot-core.yml` (see [DEPLOY_STAGING.md](wwebjs-bot/docs/DEPLOY_STAGING.md))
