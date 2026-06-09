@@ -1,0 +1,63 @@
+"use strict";
+
+const http = require("http");
+const { startBotHealthServer } = require("../../lib/botHealthServer");
+
+describe("botHealthServer", () => {
+  let serverInfo;
+
+  afterEach((done) => {
+    if (serverInfo?.server) {
+      serverInfo.server.close(done);
+    } else {
+      done();
+    }
+    delete process.env.BOT_HEALTH_PORT;
+    delete process.env.BOT_HEALTH_BIND;
+  });
+
+  function get(path, port) {
+    return new Promise((resolve, reject) => {
+      http
+        .get(`http://127.0.0.1:${port}${path}`, (res) => {
+          let data = "";
+          res.on("data", (chunk) => {
+            data += chunk;
+          });
+          res.on("end", () => {
+            resolve({ status: res.statusCode, body: JSON.parse(data) });
+          });
+        })
+        .on("error", reject);
+    });
+  }
+
+  it("returns 503 when bot is not ready", async () => {
+    process.env.BOT_HEALTH_PORT = "37655";
+    process.env.BOT_HEALTH_BIND = "127.0.0.1";
+    serverInfo = startBotHealthServer({
+      getStatus: async () => ({ ready: false, state: null, clientReady: false }),
+    });
+    await new Promise((resolve) => serverInfo.server.once("listening", resolve));
+    const res = await get("/health", serverInfo.port);
+    expect(res.status).toBe(503);
+    expect(res.body.ok).toBe(false);
+  });
+
+  it("returns 200 when bot is ready", async () => {
+    process.env.BOT_HEALTH_PORT = "37656";
+    process.env.BOT_HEALTH_BIND = "127.0.0.1";
+    serverInfo = startBotHealthServer({
+      getStatus: async () => ({
+        ready: true,
+        state: "CONNECTED",
+        clientReady: true,
+      }),
+    });
+    await new Promise((resolve) => serverInfo.server.once("listening", resolve));
+    const res = await get("/health", serverInfo.port);
+    expect(res.status).toBe(200);
+    expect(res.body.ok).toBe(true);
+    expect(res.body.whatsappState).toBe("CONNECTED");
+  });
+});

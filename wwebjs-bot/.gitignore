@@ -30,6 +30,8 @@ Thumbs.db
 !README.md
 !TEST_SUMMARY.md
 !docs/DEPLOY_STAGING.md
+!docs/HOW_THE_BOT_WORKS.md
+!docs/UPTIME_KUMA.md
 
 # Jest / coverage output
 coverage/

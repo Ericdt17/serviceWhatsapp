@@ -28,6 +28,9 @@
 # OPENAI_API_KEY=<your OpenAI API key>
 #
 # BOT_ALERT_WEBHOOK_URL=<Discord webhook URL for bot alerts>
+#
+# BOT_HEALTH_PORT=3099
+# BOT_HEALTH_BIND=127.0.0.1
 # =============================================================================
 
 # ---------------------------
@@ -105,6 +108,13 @@ OPENAI_API_KEY=
 # ---------------------------
 # Server Settings → Integrations → Webhooks → New Webhook → copy URL
 BOT_ALERT_WEBHOOK_URL=
+
+# ---------------------------
+# Health check (Uptime Kuma)
+# ---------------------------
+# GET http://127.0.0.1:3099/health → 200 when WhatsApp connected
+BOT_HEALTH_PORT=3099
+BOT_HEALTH_BIND=127.0.0.1
 
 # ---------------------------
 # Cloudinary (optional)

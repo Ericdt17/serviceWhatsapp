@@ -32,6 +32,8 @@ Key files: `src/services/coreApiClient.js`, `src/lib/packageCatalogMatch.js`, `s
 
 See [wwebjs-bot/docs/DEPLOY_STAGING.md](wwebjs-bot/docs/DEPLOY_STAGING.md).
 
+Staff guide: [wwebjs-bot/docs/HOW_THE_BOT_WORKS.md](wwebjs-bot/docs/HOW_THE_BOT_WORKS.md).
+
 - Bot VPS: PM2 `whatsapp-bot-core` at `/opt/livsight-whatsapp-core`
 - Core VPS: `https://livsighttest.didierdjakoua.site`
 - CD: `.github/workflows/cd-bot-core.yml`

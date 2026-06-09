@@ -42,6 +42,7 @@ See [wwebjs-bot/README.md](wwebjs-bot/README.md) and [wwebjs-bot/docs/DEPLOY_STA
 
 ## Docs
 
+- [wwebjs-bot/docs/HOW_THE_BOT_WORKS.md](wwebjs-bot/docs/HOW_THE_BOT_WORKS.md) — **guide équipe** (staff): fonctionnalités, formats, onboarding `#link`
 - [WHATSAPP_SERVICE_ROLLOUT.md](WHATSAPP_SERVICE_ROLLOUT.md) — integration roadmap
 - [wwebjs-bot/docs/DEPLOY_STAGING.md](wwebjs-bot/docs/DEPLOY_STAGING.md) — staging deploy on bot VPS
 - [API.md](API.md) — legacy REST API (optional)

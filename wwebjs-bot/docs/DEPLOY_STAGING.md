@@ -113,7 +113,19 @@ Do not delete `.wwebjs_auth/session-livsight-bot-core-staging/`.
 
 ---
 
-## 5. E2E
+## 5. Uptime Kuma
+
+Health endpoint (same VPS as bot): `http://127.0.0.1:3099/health` → expect HTTP **200** when WhatsApp is connected.
+
+See [UPTIME_KUMA.md](./UPTIME_KUMA.md) for monitor setup.
+
+```bash
+curl -s http://127.0.0.1:3099/health
+```
+
+---
+
+## 6. E2E
 
 1. Dashboard: link client — `#link` in group → paste `whatsapp_group_id`.
 2. Send test message (e.g. phone / items / amount / quartier).
@@ -122,7 +134,7 @@ Do not delete `.wwebjs_auth/session-livsight-bot-core-staging/`.
 
 ---
 
-## 6. Cutover
+## 7. Cutover
 
 ```bash
 pm2 stop whatsapp-bot   # legacy only when core bot is stable

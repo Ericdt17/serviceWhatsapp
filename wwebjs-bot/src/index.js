@@ -7,6 +7,7 @@ const config = require("./config");
 const { createRemindersWorker } = require("./reminders/worker");
 const { generateDailyReport } = require("./lib/daily-report");
 const botAlerts = require("./lib/botAlerts");
+const { startBotHealthServer } = require("./lib/botHealthServer");
 const { onMessage } = require("./handlers/messageHandler");
 
 // Log startup time
@@ -181,6 +182,19 @@ client.on("qr", async (qr) => {
 let remindersWorker = null;
 let clientReady = false;
 
+async function getBotHealthStatus() {
+  let state = null;
+  try {
+    state = await client.getState();
+  } catch {
+    /* client not initialized yet */
+  }
+  const ready = clientReady || state === "CONNECTED";
+  return { ready, state, clientReady };
+}
+
+startBotHealthServer({ getStatus: getBotHealthStatus });
+
 function logListenerDiagnostics(label) {
   const messageListeners = client.listenerCount("message");
   const messageCreateListeners = client.listenerCount("message_create");
@@ -306,6 +320,7 @@ client.on("auth_failure", (msg) => {
 
 // When client is disconnected
 client.on("disconnected", (reason) => {
+  clientReady = false;
   botAlerts.notifyDisconnected(reason);
   console.log("\n" + "=".repeat(60));
   console.log("⚠️  CLIENT DISCONNECTED");
