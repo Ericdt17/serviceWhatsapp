@@ -5,6 +5,8 @@ const { resolvePackageMatch } = require("../lib/packageCatalogMatch");
 const { throwApiError } = require("../lib/formatApiError");
 const botAlerts = require("../lib/botAlerts");
 const { guardCoreApiCall } = require("../lib/coreApiCircuitBreaker");
+const botMetrics = require("../lib/botMetrics");
+const botLogger = require("../lib/botLogger");
 const {
   extractTransactionRef,
   isIdempotentReplay,
@@ -86,6 +88,7 @@ async function withAuthRetry(doFetch) {
     return res;
   }
 
+  botMetrics.increment("coreApi401");
   botAlerts.notifyCoreApiSessionLost();
   botAlerts.notifyCoreApiReconnecting();
   clearAuthCache();

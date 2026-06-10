@@ -1,13 +1,14 @@
 "use strict";
 
 const http = require("http");
+const botMetrics = require("./botMetrics");
 
 /**
  * Minimal HTTP server for Uptime Kuma / load balancers.
- * GET /health → 200 when WhatsApp is ready AND Core API auth works (core mode), else 503.
+ * GET /health or /metrics → JSON with status + counters.
  *
- * @param {{ getStatus: () => Promise<{ ready: boolean, state?: string|null, clientReady?: boolean, coreApiOk?: boolean, coreApiError?: string|null, coreApiSkipped?: boolean }> }} options
- * @returns {{ server: import('http').Server, port: number } | null}
+ * @param {{ getStatus: () => Promise<object> }} options
+ * @returns {{ server: import('http').Server, port: number, host: string } | null}
  */
 function startBotHealthServer(options) {
   const port = parseInt(process.env.BOT_HEALTH_PORT || "3099", 10);
@@ -19,30 +20,36 @@ function startBotHealthServer(options) {
   const host = process.env.BOT_HEALTH_BIND || "127.0.0.1";
   const { getStatus } = options;
 
+  async function buildBody() {
+    const status = await getStatus();
+    return {
+      service: "whatsapp-bot-core",
+      ok: Boolean(status.ready),
+      ready: Boolean(status.ready),
+      whatsappState: status.state ?? null,
+      clientReady: Boolean(status.clientReady),
+      coreApiOk:
+        status.coreApiSkipped === true ? null : status.coreApiOk !== false,
+      coreApiError: status.coreApiError ?? null,
+      circuitOpen: Boolean(status.circuitOpen),
+      circuitRemainingMs: status.circuitRemainingMs ?? 0,
+      clientId: status.clientId ?? null,
+      metrics: status.metrics || botMetrics.snapshot(),
+      uptimeSeconds: Math.floor(process.uptime()),
+      timestamp: new Date().toISOString(),
+    };
+  }
+
   const server = http.createServer(async (req, res) => {
-    if (req.url !== "/health" && req.url !== "/") {
+    const path = req.url?.split("?")[0];
+    if (path !== "/health" && path !== "/metrics" && path !== "/") {
       res.writeHead(404, { "Content-Type": "application/json" });
       res.end(JSON.stringify({ error: "not found" }));
       return;
     }
 
     try {
-      const status = await getStatus();
-      const body = {
-        service: "whatsapp-bot-core",
-        ok: Boolean(status.ready),
-        ready: Boolean(status.ready),
-        whatsappState: status.state ?? null,
-        clientReady: Boolean(status.clientReady),
-        coreApiOk:
-          status.coreApiSkipped === true
-            ? null
-            : status.coreApiOk !== false,
-        coreApiError: status.coreApiError ?? null,
-        uptimeSeconds: Math.floor(process.uptime()),
-        timestamp: new Date().toISOString(),
-      };
-
+      const body = await buildBody();
       res.writeHead(body.ok ? 200 : 503, { "Content-Type": "application/json" });
       res.end(JSON.stringify(body));
     } catch (err) {

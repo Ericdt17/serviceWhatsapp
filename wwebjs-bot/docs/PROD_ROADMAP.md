@@ -123,13 +123,24 @@ Backend (#45): `POST /api/transactions` returns `TransactionResponse` (`id`, `tr
 
 ## Phase 4 — Observability and ops
 
-| # | Task |
-|---|------|
-| 4.1 | Structured logging (`pino`) in production |
-| 4.2 | Log rotation on VPS |
-| 4.3 | Metrics (orders ok/fail, API 401, reconnects) |
-| 4.4 | Staff commands: `#status`, `#ping` |
-| 4.5 | Alert → action runbook |
+**Goal:** See what the bot is doing and react faster without SSH.
+
+| # | Task | Status |
+|---|------|--------|
+| 4.1 | Structured logging (`pino`) in production | `src/lib/botLogger.js` — order/api/wa/health paths |
+| 4.2 | Log rotation on VPS | `scripts/logrotate-bot.conf` |
+| 4.3 | Metrics (orders ok/fail, API 401, reconnects) | `src/lib/botMetrics.js` on `/health` and `/metrics` |
+| 4.4 | Staff commands: `#status`, `#ping` | `src/handlers/staffCommands.js` — **DM to bot only** |
+| 4.5 | Alert → action runbook | [OPS_RUNBOOK.md](./OPS_RUNBOOK.md) |
+
+### Phase 4 exit criteria
+
+- [ ] `npm test` passes (metrics, staff commands, health)
+- [ ] `curl http://127.0.0.1:3099/health` includes `metrics` block
+- [ ] DM `#ping` / `#status` to bot phone → reply; same in group → ignored
+- [ ] PM2 logs show JSON lines for order save/fail (`LOG_LEVEL=info`)
+- [ ] Logrotate installed on staging VPS
+- [ ] Ops reviewed [OPS_RUNBOOK.md](./OPS_RUNBOOK.md)
 
 ---
 

@@ -205,3 +205,18 @@ When order save fails (Core API 400/500, circuit open, etc.), the bot writes JSO
 Idempotency: backend dedupes on `whatsapp_message_id`; bot also keeps `data/submitted-message-ids.json` across PM2 restarts.
 
 Optional: `SEND_CONFIRMATIONS=true` in `.env` to reply in the group when an order is saved.
+
+### Phase 4 — observability
+
+**Staff commands (DM only):** open a direct chat with the bot phone and send `#ping` or `#status`. Commands are ignored in vendor groups.
+
+**Metrics:** `curl http://127.0.0.1:3099/health` or `/metrics` returns order counters and circuit breaker state.
+
+**Log rotation:**
+
+```bash
+sudo cp /opt/livsight-whatsapp-core/wwebjs-bot/scripts/logrotate-bot.conf /etc/logrotate.d/livsight-bot
+sudo logrotate -d /etc/logrotate.d/livsight-bot
+```
+
+Ops runbook: [OPS_RUNBOOK.md](./OPS_RUNBOOK.md).

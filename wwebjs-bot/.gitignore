@@ -35,6 +35,7 @@ Thumbs.db
 !docs/UPTIME_KUMA.md
 !docs/PROD_ROADMAP.md
 !docs/QR_RECOVERY.md
+!docs/OPS_RUNBOOK.md
 !deploy/
 
 # Jest / coverage output

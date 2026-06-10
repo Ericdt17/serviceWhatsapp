@@ -63,6 +63,26 @@ describe("botHealthServer", () => {
     expect(res.body.ok).toBe(true);
     expect(res.body.whatsappState).toBe("CONNECTED");
     expect(res.body.coreApiOk).toBe(true);
+    expect(res.body.metrics).toBeDefined();
+    expect(res.body.metrics.ordersOk).toBeDefined();
+  });
+
+  it("returns metrics on /metrics path", async () => {
+    process.env.BOT_HEALTH_PORT = "37658";
+    process.env.BOT_HEALTH_BIND = "127.0.0.1";
+    serverInfo = startBotHealthServer({
+      getStatus: async () => ({
+        ready: true,
+        state: "CONNECTED",
+        clientReady: true,
+        coreApiOk: true,
+        metrics: { ordersOk: 5, ordersFailed: 0 },
+      }),
+    });
+    await new Promise((resolve) => serverInfo.server.once("listening", resolve));
+    const res = await get("/metrics", serverInfo.port);
+    expect(res.status).toBe(200);
+    expect(res.body.metrics.ordersOk).toBe(5);
   });
 
   it("returns 503 when WhatsApp is up but Core API auth failed", async () => {

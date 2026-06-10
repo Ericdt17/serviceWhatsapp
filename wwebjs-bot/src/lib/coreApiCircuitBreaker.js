@@ -1,6 +1,8 @@
 "use strict";
 
 const botAlerts = require("./botAlerts");
+const botMetrics = require("./botMetrics");
+const botLogger = require("./botLogger");
 
 function circuitConfig() {
   const threshold = parseInt(
@@ -54,6 +56,11 @@ function recordFailure(status, operation) {
   consecutiveFailures = 0;
   if (!alertSentForOpen) {
     alertSentForOpen = true;
+    botMetrics.increment("circuitBreakerOpens");
+    botLogger.api.warn(
+      { event: "circuit_open", operation, status, cooldownMs },
+      "Core API circuit opened"
+    );
     botAlerts.notifyCoreApiCircuitOpen({ operation, status });
   }
   console.warn(
@@ -62,6 +69,9 @@ function recordFailure(status, operation) {
 }
 
 function recordSuccess() {
+  if (openUntil > 0 || consecutiveFailures > 0) {
+    botLogger.api.info({ event: "circuit_closed" }, "Core API circuit closed");
+  }
   consecutiveFailures = 0;
   openUntil = 0;
   alertSentForOpen = false;

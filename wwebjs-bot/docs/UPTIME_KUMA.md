@@ -191,6 +191,8 @@ Si `BOT_ALERT_WEBHOOK_URL` est configuré, le bot envoie des **messages courts e
 
 Variables utiles (voir `.envexample`) :
 
+**Runbook détaillé :** [OPS_RUNBOOK.md](./OPS_RUNBOOK.md) — que faire pour chaque alerte Discord.
+
 ```env
 BOT_ALERT_HEARTBEAT_ENABLED=true
 BOT_ALERT_HEARTBEAT_HOURS=24

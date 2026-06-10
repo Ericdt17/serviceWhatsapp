@@ -146,8 +146,13 @@ BOT_ALERT_WEBHOOK_URL=
 # Pause Core API calls after N consecutive 5xx (default 5 failures, 15 min)
 # CORE_API_CIRCUIT_FAILURE_THRESHOLD=5
 # CORE_API_CIRCUIT_COOLDOWN_MS=900000
-# Optional: reply in group when order saved (reduces vendor resends)
-# SEND_CONFIRMATIONS=true
+
+# ---------------------------
+# Observability (Phase 4)
+# ---------------------------
+# LOG_LEVEL=info
+# BOT_VERBOSE_LOGS=false
+# BOT_METRICS_LOG_HOURS=6
 
 # ---------------------------
 # Health check (Uptime Kuma)

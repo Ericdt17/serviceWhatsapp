@@ -15,6 +15,10 @@ const {
 const { createReconnectScheduler } = require("./lib/waReconnect");
 const { onMessage } = require("./handlers/messageHandler");
 const coreApi = require("./services/coreApiClient");
+const { getBotHealthStatus } = require("./lib/botHealthStatus");
+const botRuntimeState = require("./lib/botRuntimeState");
+const botMetrics = require("./lib/botMetrics");
+const botLogger = require("./lib/botLogger");
 
 // Log startup time
 const startupStartTime = Date.now();
@@ -103,6 +107,13 @@ let qrShown = false;
 const waReconnect = createReconnectScheduler({
   client,
   isShuttingDown,
+  onScheduled: (reason, attempt, delayMs) => {
+    botMetrics.increment("waReconnects");
+    botLogger.wa.info(
+      { event: "wa_reconnect_scheduled", reason, attempt, delayMs },
+      "WhatsApp reconnect scheduled"
+    );
+  },
 });
 
 if (config.AI_DELIVERY_FALLBACK_ENABLED && !config.OPENAI_API_KEY) {
@@ -190,50 +201,20 @@ client.on("qr", async (qr) => {
 
 // When client is ready
 let remindersWorker = null;
-let clientReady = false;
 
-async function getBotHealthStatus() {
-  let state = null;
-  try {
-    state = await client.getState();
-  } catch {
-    /* client not initialized yet */
-  }
-  const whatsappReady = clientReady || state === "CONNECTED";
-
-  let coreApiOk = true;
-  let coreApiError = null;
-  let coreApiSkipped = !config.USE_CORE_API;
-
-  if (config.USE_CORE_API && whatsappReady) {
-    const coreCheck = await coreApi.checkCoreApiHealth();
-    coreApiOk = coreCheck.ok;
-    coreApiError = coreCheck.error || null;
-    coreApiSkipped = Boolean(coreCheck.skipped);
-    if (!coreApiOk) {
-      botAlerts.notifyCoreApiHealthDown();
-    } else {
-      botAlerts.notifyCoreApiHealthRecovered();
-    }
-  }
-
-  const ready = whatsappReady && coreApiOk;
-  return {
-    ready,
-    state,
-    clientReady,
-    coreApiOk,
-    coreApiError,
-    coreApiSkipped,
-  };
+async function fetchHealthStatus() {
+  return getBotHealthStatus({
+    client,
+    clientReady: botRuntimeState.isClientReady(),
+  });
 }
 
-const healthServerHandle = startBotHealthServer({ getStatus: getBotHealthStatus });
+const healthServerHandle = startBotHealthServer({ getStatus: fetchHealthStatus });
 
 botAlerts.init({
   getQrShown: () => qrShown,
   client,
-  getHealth: getBotHealthStatus,
+  getHealth: fetchHealthStatus,
 });
 
 registerGracefulShutdown({
@@ -241,6 +222,17 @@ registerGracefulShutdown({
   healthServer: healthServerHandle?.server ?? null,
   clearReconnectTimer: () => waReconnect.clearTimer(),
 });
+
+const metricsLogHours = parseFloat(process.env.BOT_METRICS_LOG_HOURS || "0", 10);
+if (Number.isFinite(metricsLogHours) && metricsLogHours > 0) {
+  const intervalMs = metricsLogHours * 60 * 60 * 1000;
+  setInterval(() => {
+    botLogger.health.info(
+      { event: "metrics_snapshot", ...botMetrics.snapshot() },
+      "Bot metrics snapshot"
+    );
+  }, intervalMs).unref();
+}
 
 function logListenerDiagnostics(label) {
   const messageListeners = client.listenerCount("message");
@@ -282,29 +274,67 @@ function startRemindersWorkerIfEnabled() {
   remindersWorker.start();
 }
 
-client.on("ready", async () => {
-  clientReady = true;
+/**
+ * One-time startup when WhatsApp is usable (ready event or authenticated fallback).
+ * @param {"ready" | "authenticated-fallback"} source
+ * @returns {Promise<boolean>} true if this call performed setup
+ */
+async function finalizeBotReady(source) {
+  if (botRuntimeState.isClientReady()) {
+    return false;
+  }
+
+  botRuntimeState.setClientReady(true);
   waReconnect.reset();
   botAlerts.notifyReady();
+
   const startupDuration = ((Date.now() - startupStartTime) / 1000).toFixed(1);
-  botAlerts.notifyWhatsAppReady(startupDuration);
+  if (source === "ready") {
+    botAlerts.notifyWhatsAppReady(startupDuration);
+  }
+
+  const viaFallback = source === "authenticated-fallback";
+  botLogger.wa.info(
+    {
+      event: "bot_ready",
+      source,
+      viaFallback,
+      startupSeconds: Number(startupDuration),
+    },
+    viaFallback ? "Bot ready (authenticated fallback)" : "Bot ready"
+  );
+
   console.log("\n" + "=".repeat(60));
-  console.log("✅ BOT IS READY!");
+  if (viaFallback) {
+    console.log("✅ BOT IS READY! (authenticated fallback — ready event did not fire)");
+  } else {
+    console.log("✅ BOT IS READY!");
+  }
   console.log("=".repeat(60));
   console.log(`⏱️  Startup time: ${startupDuration} seconds`);
   console.log("📋 Listening for messages...");
 
-  logListenerDiagnostics("ready");
-  await forceChatSync("ready");
+  logListenerDiagnostics(source);
+  await forceChatSync(source);
 
   console.log("=".repeat(60) + "\n");
   qrShown = false;
 
   setupDailyReportScheduler();
   startRemindersWorkerIfEnabled();
+
+  console.log(
+    "💡 Test: DM #ping / #status to this number, or #link in a group\n"
+  );
+
+  return true;
+}
+
+client.on("ready", async () => {
+  await finalizeBotReady("ready");
 });
 
-// Additional check: Sometimes ready event doesn't fire, check state manually
+// Sometimes ready event doesn't fire — promote CONNECTED + chat sync to ready
 client.on("authenticated", async () => {
   console.log("\n" + "=".repeat(60));
   console.log("✅ AUTHENTICATED SUCCESSFULLY!");
@@ -312,9 +342,12 @@ client.on("authenticated", async () => {
   console.log("💡 You won't need to scan QR code again next time.");
   console.log("=".repeat(60) + "\n");
 
-  // Wait a bit then check if client is ready (in case ready event doesn't fire)
   setTimeout(async () => {
     try {
+      if (botRuntimeState.isClientReady()) {
+        return;
+      }
+
       const state = await client.getState();
       console.log(
         `\n🔍 DIAGNOSTIC: Checking client state after authentication...`
@@ -322,31 +355,7 @@ client.on("authenticated", async () => {
       console.log(`   State: ${state}`);
 
       if (state === "CONNECTED") {
-        waReconnect.reset();
-        botAlerts.notifyReady();
-        console.log("\n" + "=".repeat(60));
-        console.log(`✅ CLIENT STATE: CONNECTED${clientReady ? " (ready event fired)" : " (ready event NOT fired yet)"}`);
-        console.log("=".repeat(60));
-        console.log("📋 Bot should be listening for messages now.");
-
-        logListenerDiagnostics("authenticated");
-
-        if (!clientReady) {
-          console.log("   ⚠️  Waiting for full sync — forcing chat load...");
-          await forceChatSync("authenticated-fallback");
-        }
-
-        if (typeof setupDailyReportScheduler === "function") {
-          console.log("📅 Setting up daily report scheduler...");
-          setupDailyReportScheduler();
-        }
-
-        startRemindersWorkerIfEnabled();
-
-        console.log(
-          "\n💡 Test: send #link in a group where THIS phone is a member\n"
-        );
-        console.log("=".repeat(60) + "\n");
+        await finalizeBotReady("authenticated-fallback");
       } else {
         console.log(`\n⚠️  Client state: ${state}`);
         console.log("💡 Waiting for ready event or CONNECTED state...\n");
@@ -355,7 +364,7 @@ client.on("authenticated", async () => {
       console.error("⚠️  Error checking client state:", error.message);
       console.error("   Stack:", error.stack);
     }
-  }, 3000); // Check after 3 seconds (reduced from 5)
+  }, 3000);
 });
 
 // When authentication fails
@@ -369,8 +378,9 @@ client.on("auth_failure", (msg) => {
 
 // When client is disconnected
 client.on("disconnected", (reason) => {
-  clientReady = false;
+  botRuntimeState.setClientReady(false);
   botAlerts.notifyDisconnected(reason);
+  botLogger.wa.warn({ event: "bot_disconnected", reason }, "WhatsApp disconnected");
   console.log("\n" + "=".repeat(60));
   console.log("⚠️  CLIENT DISCONNECTED");
   console.log("=".repeat(60));

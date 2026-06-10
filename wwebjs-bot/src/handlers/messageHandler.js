@@ -12,6 +12,8 @@ const botAlerts = require("../lib/botAlerts");
 const { logStructuredError } = require("../lib/formatApiError");
 const { handleStatusUpdate } = require("./statusUpdateHandler");
 const { handleDelivery } = require("./deliveryHandler");
+const { handleStaffCommand } = require("./staffCommands");
+const botLogger = require("../lib/botLogger");
 
 /**
  * Main entry point for every incoming WhatsApp message.
@@ -35,16 +37,20 @@ async function onMessage(msg, client) {
     const isGroupChat =
       chat.isGroup === true || String(chatId).endsWith("@g.us");
 
-    console.log("\n🔍 DEBUG - Raw message received:");
-    console.log("   isGroup:", chat.isGroup, "→ treated as group:", isGroupChat);
-    console.log("   groupId:", chatId || "N/A");
-    console.log("   msg.from:", msg.from || "N/A");
-    console.log("   targetGroupId:", config.GROUP_ID);
-    console.log("   message length:", messageText.length);
-    console.log("   message preview:", messageText.substring(0, 150));
+    if (await handleStaffCommand(msg, client)) {
+      return;
+    }
+
+    botLogger.verboseConsole("\n🔍 DEBUG - Raw message received:");
+    botLogger.verboseConsole("   isGroup:", chat.isGroup, "→ treated as group:", isGroupChat);
+    botLogger.verboseConsole("   groupId:", chatId || "N/A");
+    botLogger.verboseConsole("   msg.from:", msg.from || "N/A");
+    botLogger.verboseConsole("   targetGroupId:", config.GROUP_ID);
+    botLogger.verboseConsole("   message length:", messageText.length);
+    botLogger.verboseConsole("   message preview:", messageText.substring(0, 150));
 
     if (!isGroupChat) {
-      console.log("   ⏭️  Skipped: Not a group message\n");
+      botLogger.verboseConsole("   ⏭️  Skipped: Not a group message\n");
       return;
     }
 

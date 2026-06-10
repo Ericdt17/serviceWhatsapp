@@ -17,11 +17,23 @@ const { logStructuredError } = require("../lib/formatApiError");
 const orderIdempotency = require("../lib/orderIdempotency");
 const failedOrderDeadLetter = require("../lib/failedOrderDeadLetter");
 const { extractTransactionRef } = require("../lib/transactionResponse");
+const botMetrics = require("../lib/botMetrics");
+const botLogger = require("../lib/botLogger");
 
 /** groupId:author → timestamp of last format-reminder sent (ms) */
 const formatReminderCooldownByKey = new Map();
 
 function persistFailedOrder(ctx, error) {
+  botMetrics.increment("ordersFailed");
+  botLogger.order.warn(
+    {
+      event: "order_failed",
+      whatsappMessageId: ctx.whatsappMessageId,
+      viaAi: ctx.viaAi,
+      err: error?.message,
+    },
+    "Order save failed"
+  );
   failedOrderDeadLetter.writeFailedOrder({ ...ctx, error });
   botAlerts.notifyDeliverySaveFailed(error);
 }
@@ -58,6 +70,11 @@ async function saveDelivery({
       throw new Error("No linked client keycloakId for core API submission");
     }
     if (!orderIdempotency.tryAcquire(whatsappMessageId)) {
+      botMetrics.increment("ordersSkippedIdempotent");
+      botLogger.order.info(
+        { event: "order_skipped_idempotent", whatsappMessageId },
+        "Transaction already submitted locally"
+      );
       console.log(
         `   ⏭️  Transaction already submitted for message ${whatsappMessageId}`
       );
@@ -78,6 +95,17 @@ async function saveDelivery({
         extractTransactionRef(result);
 
       orderIdempotency.markSubmitted(whatsappMessageId, { transactionRef: ref });
+      botMetrics.increment("ordersOk");
+      botLogger.order.info(
+        {
+          event: result._idempotentReplay ? "order_idempotent_replay" : "order_saved",
+          whatsappMessageId,
+          transactionRef: ref,
+          viaAi,
+          clientKeycloakId: linkedClient.keycloakId,
+        },
+        result._idempotentReplay ? "Idempotent transaction replay" : "Order saved"
+      );
 
       console.log("\n" + "=".repeat(60));
       if (result._idempotentReplay) {
@@ -155,6 +183,12 @@ async function saveDelivery({
   console.log(`   📍 Quartier: ${parsed.quartier || "Non spécifié"}`);
   if (parsed.carrier) console.log(`   🚚 Transporteur: ${parsed.carrier}`);
   console.log("=".repeat(60) + "\n");
+
+  botMetrics.increment("ordersOk");
+  botLogger.order.info(
+    { event: "order_saved", deliveryId, whatsappMessageId, viaAi },
+    "Legacy delivery saved"
+  );
 
   if (config.SEND_CONFIRMATIONS === "true" && config.GROUP_ID) {
     try {
