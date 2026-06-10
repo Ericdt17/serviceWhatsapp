@@ -185,5 +185,48 @@ describe("coreApiClient auth retry", () => {
     expect(result._transactionRef).toBe(99);
     expect(result.id).toBe(99);
     expect(result.transactionReference).toBe("TX-2026-99");
+
+    const packagesCall = global.fetch.mock.calls.find(([url]) =>
+      String(url).includes("/api/packages?")
+    );
+    expect(packagesCall).toBeDefined();
+    expect(String(packagesCall[0])).toContain("userId=client-kc");
+  });
+
+  it("mapParsedToTransaction omits amount when amount_due is 0", () => {
+    const { mapParsedToTransaction } = require("../../services/coreApiClient");
+    const messageText = "690829269\n01 Savon BOASUN\n0\nCarrefour SHO";
+    const fields = mapParsedToTransaction(
+      {
+        phone: "690829269",
+        items: "01 Savon BOASUN",
+        amount_due: 0,
+        quartier: "Carrefour SHO",
+      },
+      messageText,
+      { source: "pickup", package_name: "01 Savon BOASUN", quantity: 1 }
+    );
+    expect(fields.cash_collect).toBe("false");
+    expect(fields.amount).toBeUndefined();
+    expect(fields.package_name).toBe("01 Savon BOASUN");
+    expect(fields.description).toBe(messageText);
+  });
+
+  it("mapParsedToTransaction uses message text as description (not duplicate package_name)", () => {
+    const { mapParsedToTransaction } = require("../../services/coreApiClient");
+    const messageText = "699000001\n2 robes\n12000\nAkwa";
+    const fields = mapParsedToTransaction(
+      {
+        phone: "699000001",
+        items: "robes",
+        amount_due: 12000,
+        quartier: "Akwa",
+      },
+      messageText,
+      { source: "pickup", package_name: "robes", quantity: 2 }
+    );
+    expect(fields.package_name).toBe("robes");
+    expect(fields.description).toBe(messageText);
+    expect(fields.quantity).toBe(2);
   });
 });

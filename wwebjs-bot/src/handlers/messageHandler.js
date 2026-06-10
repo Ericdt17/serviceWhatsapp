@@ -129,14 +129,11 @@ async function onMessage(msg, client) {
       try {
         linkedClient = await coreApi.getClientByWhatsappGroup(whatsappGroupId);
         if (!linkedClient) {
-          console.log(`   ⏭️  Skipped: No client linked to WhatsApp group`);
-          try {
-            await msg.reply(
-              "⚠️ Ce groupe WhatsApp n'est pas lié à un client. Un admin doit coller l'ID du groupe (#link) dans le profil client."
-            );
-          } catch {
-            /* ignore send errors */
-          }
+          console.log(`   ⏭️  Skipped: No client linked to WhatsApp group (silent)`);
+          botAlerts.notifyClientLookupFailed(
+            { status: 404 },
+            { groupName, whatsappGroupId }
+          );
           return;
         }
         console.log(

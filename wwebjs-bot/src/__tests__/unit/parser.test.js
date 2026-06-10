@@ -36,6 +36,32 @@ describe('parseDeliveryMessage', () => {
       expect(result.amount_due).toBe(20000);
     });
 
+    it('accepts 0 as no cash to collect (AgroSentinel-style message)', () => {
+      const msg =
+        '690829269\n01 Savon BOASUN\n0\nCarrefour SHO marché central';
+      const result = parseDeliveryMessage(msg);
+      expect(result.valid).toBe(true);
+      expect(result.phone).toBe('690829269');
+      expect(result.items).toBe('01 Savon BOASUN');
+      expect(result.amount_due).toBe(0);
+      expect(result.hasAmount).toBe(true);
+      expect(result.quartier).toBe('Carrefour SHO marché central');
+    });
+
+    it('accepts spaced phone with zero amount', () => {
+      const msg = '6 90 82 92 69\n01 Savon BOASUN\n0\nMakepe';
+      const result = parseDeliveryMessage(msg);
+      expect(result.valid).toBe(true);
+      expect(result.phone).toBe('690829269');
+      expect(result.amount_due).toBe(0);
+    });
+
+    it('still rejects amounts between 1 and 99', () => {
+      const msg = '612345678\n2 robes\n50\nBonapriso';
+      const result = parseDeliveryMessage(msg);
+      expect(result.valid).toBe(false);
+    });
+
     it('extracts quartier from the predefined list', () => {
       const msg = '655555555\n1 sac\n12000\nMakepe';
       const result = parseDeliveryMessage(msg);
@@ -156,6 +182,11 @@ describe('looksLikeMalformedDelivery', () => {
     expect(looksLikeMalformedDelivery(msg)).toBe(false);
   });
 
+  it('returns false for a valid zero-collection delivery', () => {
+    const msg = '690829269\n01 Savon BOASUN\n0\nCarrefour SHO marché central';
+    expect(looksLikeMalformedDelivery(msg)).toBe(false);
+  });
+
   it('returns false when only one signal is present (phone only)', () => {
     expect(looksLikeMalformedDelivery('612345678')).toBe(false);
   });
@@ -166,6 +197,11 @@ describe('looksLikeMalformedDelivery', () => {
 
   it('returns true for messy one-line text with phone, amount, known quartier', () => {
     const msg = 'Livraison 612345678 client 15k vers makepe stp';
+    expect(looksLikeMalformedDelivery(msg)).toBe(true);
+  });
+
+  it('returns true for phone + product line without parseable amount', () => {
+    const msg = '612345678\n2 robes pour cliente\nlivrer Makepe';
     expect(looksLikeMalformedDelivery(msg)).toBe(true);
   });
 
@@ -200,36 +236,19 @@ describe('looksLikeMalformedDeliveryWithParsed', () => {
 });
 
 describe('getFormatReminderMessage', () => {
-  it('contains error intro, both formats, examples and closing', () => {
+  it('contains short error intro, 4-line format, zero hint and example', () => {
     const text = getFormatReminderMessage();
 
-    // Error intro
-    expect(text).toMatch(/Format incorrect/i);
-    expect(text).toMatch(/pas été enregistr/i);
-
-    // Standard format
-    expect(text).toMatch(/Format standard/i);
+    expect(text).toMatch(/Commande non enregistrée/i);
     expect(text).toMatch(/Numéro/);
     expect(text).toMatch(/Produit/);
     expect(text).toMatch(/Montant/);
+    expect(text).toMatch(/0 = rien à encaisser/i);
     expect(text).toMatch(/Quartier/);
-
-    // Standard format example — concrete phone + amount
+    expect(text).toMatch(/1 info par ligne/i);
     expect(text).toMatch(/694397546/);
     expect(text).toMatch(/6000/);
     expect(text).toMatch(/Messassi/i);
-
-    // Alternative format
-    expect(text).toMatch(/Format alternatif/i);
-    expect(text).toMatch(/multi-articles/i);
-
-    // Alternative format example
-    expect(text).toMatch(/Melen/i);
-    expect(text).toMatch(/18k/i);
-    expect(text).toMatch(/612345678/);
-
-    // Warning and closing
-    expect(text).toMatch(/1 info par ligne/i);
-    expect(text).toMatch(/Merci de renvoyer correctement/i);
+    expect(text).not.toMatch(/Format alternatif/i);
   });
 });

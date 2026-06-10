@@ -104,6 +104,9 @@ FORMAT_REMINDER_ENABLED=true
 # Parses messy WhatsApp lines + quantity when regex fails
 AI_DELIVERY_FALLBACK_ENABLED=true
 OPENAI_API_KEY=
+# AI_DELIVERY_MODEL=gpt-4o-mini
+# AI_DELIVERY_TIMEOUT_MS=8000
+# AI_DELIVERY_MAX_TOKENS=500
 
 # ---------------------------
 # Discord alerts (recommended on staging)

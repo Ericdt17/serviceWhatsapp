@@ -4,6 +4,29 @@ const { matchPackageWithAI, extractQuantityWithAI } = require("./aiPackageMatch"
 const { normalizeCatalogText } = require("./catalogTextUtils");
 
 const MAX_STOCK_QUANTITY = 99;
+const PRODUCT_SPLIT_RE = /\s*(?:,|\bet\b|\+)\s*/i;
+const MIN_FUZZY_LEN = 3;
+
+/**
+ * @param {string} itemsText
+ * @returns {string[]}
+ */
+function splitProductParts(itemsText) {
+  const raw = String(itemsText || "").trim();
+  if (!raw) return [];
+
+  if (raw.includes(" — ")) {
+    return raw
+      .split(/\s+—\s+/)
+      .map((p) => p.trim())
+      .filter(Boolean);
+  }
+
+  return raw
+    .split(PRODUCT_SPLIT_RE)
+    .map((p) => p.trim())
+    .filter(Boolean);
+}
 
 /**
  * @param {number} n
@@ -155,6 +178,180 @@ function findExactCatalogMatch(productText, catalog) {
 }
 
 /**
+ * Single unambiguous fuzzy match (substring either way, normalized).
+ * @param {string} productText
+ * @param {Array<{ package_name: string, id?: number }>} catalog
+ * @returns {object|null}
+ */
+function findFuzzyCatalogMatch(productText, catalog) {
+  const np = normalizeCatalogText(productText);
+  if (!np || np.length < MIN_FUZZY_LEN || !Array.isArray(catalog)) {
+    return null;
+  }
+
+  function matchesName(catalogNorm) {
+    if (!catalogNorm || catalogNorm.length < MIN_FUZZY_LEN) return false;
+    if (catalogNorm.includes(np) || np.includes(catalogNorm)) return true;
+    const tokens = np.split(/\s+/).filter((t) => t.length >= MIN_FUZZY_LEN);
+    return tokens.some((tok) => {
+      const stem = tok.length > 4 && tok.endsWith("s") ? tok.slice(0, -1) : tok;
+      return catalogNorm.includes(tok) || catalogNorm.includes(stem);
+    });
+  }
+
+  const candidates = catalog.filter((pkg) =>
+    matchesName(normalizeCatalogText(pkg.package_name))
+  );
+
+  if (candidates.length === 1) {
+    return candidates[0];
+  }
+  return null;
+}
+
+/**
+ * Match one item line to catalog: exact → fuzzy → optional AI.
+ */
+async function matchPartToCatalog(partText, packages, config) {
+  const raw = String(partText || "").trim();
+  if (!raw) return null;
+
+  const { quantity, product, quantityAmbiguous } = parseQuantityAndProduct(raw);
+  const productForMatch = product || raw;
+
+  let pkg = findExactCatalogMatch(productForMatch, packages);
+  let matchMethod = "exact";
+
+  if (!pkg) {
+    pkg = findFuzzyCatalogMatch(productForMatch, packages);
+    if (pkg) matchMethod = "fuzzy";
+  }
+
+  if (
+    !pkg &&
+    config?.AI_DELIVERY_FALLBACK_ENABLED &&
+    config?.OPENAI_API_KEY
+  ) {
+    try {
+      const aiMatch = await matchPackageWithAI(productForMatch, packages, config);
+      if (aiMatch?.matched_package_name && (aiMatch.confidence ?? 0) >= 0.6) {
+        pkg = packages.find(
+          (p) =>
+            normalizeCatalogText(p.package_name) ===
+            normalizeCatalogText(aiMatch.matched_package_name)
+        );
+        if (pkg) {
+          matchMethod = "ai";
+          const aiQty = aiMatch.quantity > 0 ? aiMatch.quantity : quantity;
+          return {
+            pkg,
+            quantity: clampQuantity(aiQty),
+            matchMethod,
+            quantityAmbiguous,
+            partText: raw,
+          };
+        }
+      }
+    } catch (err) {
+      console.warn("   ⚠️  AI package match (part) failed:", err.message);
+    }
+  }
+
+  if (!pkg) return null;
+
+  return {
+    pkg,
+    quantity: clampQuantity(quantity),
+    matchMethod,
+    quantityAmbiguous,
+    partText: raw,
+  };
+}
+
+/**
+ * Resolve stock for multi-part lines (split on + , et before display join).
+ */
+async function resolveMultiPartPackageMatch(parts, packages, config) {
+  const partResults = [];
+  for (const part of parts) {
+    partResults.push(await matchPartToCatalog(part, packages, config));
+  }
+
+  const matched = partResults.filter(Boolean);
+  if (matched.length === 0) {
+    return null;
+  }
+
+  // Mixed stock + non-stock → pickup (one transaction, one stock SKU max)
+  if (matched.length < parts.length) {
+    const { displayItems, quantity } = joinPartsForPickup(parts, partResults);
+    return buildMatchResult({
+      source: "pickup",
+      package_name: displayItems,
+      quantity,
+      matchMethod: "multi_partial",
+      quantitySource: "parse",
+    });
+  }
+
+  const catalogIds = new Set(matched.map((m) => m.pkg.id ?? m.pkg.package_name));
+
+  // All parts match the same catalog SKU → stock, sum quantities
+  if (catalogIds.size === 1) {
+    const first = matched[0];
+    const totalQty = matched.reduce((sum, m) => sum + m.quantity, 0);
+    const itemsText = matched.map((m) => m.partText).join(" + ");
+    return finalizeStockMatch(
+      {
+        source: "stock",
+        package_name: first.pkg.package_name,
+        matchMethod: matched.every((m) => m.matchMethod === "exact")
+          ? "exact"
+          : matched.some((m) => m.matchMethod === "ai")
+            ? "ai"
+            : "fuzzy",
+        catalogPackageId: first.pkg.id ?? null,
+      },
+      itemsText,
+      totalQty,
+      matched.some((m) => m.quantityAmbiguous),
+      config
+    );
+  }
+
+  // Multiple distinct stock SKUs — pickup with catalog names joined
+  const displayItems = matched
+    .map((m) => m.pkg.package_name)
+    .join(" — ")
+    .slice(0, 120);
+  const quantity = matched.reduce((sum, m) => sum + m.quantity, 0);
+  return buildMatchResult({
+    source: "pickup",
+    package_name: displayItems,
+    quantity: clampQuantity(quantity),
+    matchMethod: "multi_stock_skus",
+    quantitySource: "parse",
+  });
+}
+
+function joinPartsForPickup(parts, partResults) {
+  const names = parts.map((part, i) => {
+    const hit = partResults[i];
+    if (hit) return hit.pkg.package_name;
+    const { product } = parseQuantityAndProduct(part);
+    return (product || part).trim();
+  });
+  const quantity = parts.reduce((sum, part) => {
+    const { quantity: q } = parseQuantityAndProduct(part);
+    return sum + (q > 0 ? q : 1);
+  }, 0);
+  return {
+    displayItems: names.filter(Boolean).join(" — ").slice(0, 120) || "Colis",
+    quantity: Math.max(1, quantity),
+  };
+}
+
+/**
  * Build match result object.
  * @param {object} params
  * @returns {object}
@@ -209,18 +406,26 @@ async function resolvePackageMatch(itemsText, catalog, options = {}) {
   const { config } = options;
   const rawItems = String(itemsText || "").trim() || "Colis";
   const packages = Array.isArray(catalog) ? catalog : [];
-  const { quantity, product, quantityAmbiguous } = parseQuantityAndProduct(rawItems);
-  const productForMatch = product || rawItems;
+  const parts = splitProductParts(rawItems);
 
   if (packages.length === 0) {
+    const { displayItems, quantity } = normalizeItemsDisplay(rawItems, parts);
     return buildMatchResult({
       source: "pickup",
-      package_name: rawItems.slice(0, 120),
+      package_name: displayItems,
       quantity,
       matchMethod: "none",
       quantitySource: "parse",
     });
   }
+
+  if (parts.length > 1) {
+    const multi = await resolveMultiPartPackageMatch(parts, packages, config);
+    if (multi) return multi;
+  }
+
+  const { quantity, product, quantityAmbiguous } = parseQuantityAndProduct(rawItems);
+  const productForMatch = product || rawItems;
 
   if (packages.length === 1) {
     return finalizeStockMatch(
@@ -263,6 +468,23 @@ async function resolvePackageMatch(itemsText, catalog, options = {}) {
         matchMethod: "exact",
         confidence: 1,
         catalogPackageId: exactFullLine.id ?? null,
+      },
+      rawItems,
+      quantity,
+      quantityAmbiguous,
+      config
+    );
+  }
+
+  const fuzzy = findFuzzyCatalogMatch(productForMatch, packages);
+  if (fuzzy) {
+    return finalizeStockMatch(
+      {
+        source: "stock",
+        package_name: fuzzy.package_name,
+        matchMethod: "fuzzy",
+        confidence: 0.85,
+        catalogPackageId: fuzzy.id ?? null,
       },
       rawItems,
       quantity,
@@ -318,21 +540,42 @@ async function resolvePackageMatch(itemsText, catalog, options = {}) {
     }
   }
 
+  const { displayItems, quantity: pickupQty } = normalizeItemsDisplay(rawItems, parts);
   return buildMatchResult({
     source: "pickup",
-    package_name: rawItems.slice(0, 120),
-    quantity,
+    package_name: displayItems,
+    quantity: pickupQty,
     matchMethod: "none",
     quantitySource: "parse",
   });
 }
 
+/** Join parts for pickup display (no catalog match). */
+function normalizeItemsDisplay(rawItems, parts) {
+  const list = parts.length > 0 ? parts : [rawItems];
+  const names = list.map((part) => {
+    const { product } = parseQuantityAndProduct(part);
+    return (product || part).trim();
+  });
+  const quantity = list.reduce((sum, part) => {
+    const { quantity: q } = parseQuantityAndProduct(part);
+    return sum + (q > 0 ? q : 1);
+  }, 0);
+  return {
+    displayItems: names.filter(Boolean).join(" — ").slice(0, 120) || "Colis",
+    quantity: Math.max(1, quantity),
+  };
+}
+
 module.exports = {
   normalizeCatalogText,
+  splitProductParts,
   parseQuantityAndProduct,
   lineHintsAtQuantity,
   resolveStockQuantity,
   findExactCatalogMatch,
+  findFuzzyCatalogMatch,
+  matchPartToCatalog,
   resolvePackageMatch,
   buildMatchResult,
 };

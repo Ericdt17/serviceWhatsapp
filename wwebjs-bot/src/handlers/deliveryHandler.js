@@ -240,7 +240,7 @@ async function handleDelivery({
       console.log("   ❌ Numéro de téléphone manquant");
       return;
     }
-    if (!deliveryData.amount_due && !deliveryData.hasAmount) {
+    if (deliveryData.amount_due == null && !deliveryData.hasAmount) {
       console.log("   ❌ Montant manquant");
       return;
     }

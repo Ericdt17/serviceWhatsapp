@@ -36,12 +36,12 @@ module.exports = {
   OPENAI_API_KEY: process.env.OPENAI_API_KEY || null,
   AI_DELIVERY_MODEL: process.env.AI_DELIVERY_MODEL || "gpt-4o-mini",
   AI_DELIVERY_TIMEOUT_MS: (() => {
-    const n = parseInt(process.env.AI_DELIVERY_TIMEOUT_MS || "4000", 10);
-    return Number.isFinite(n) && n >= 1000 ? n : 4000;
+    const n = parseInt(process.env.AI_DELIVERY_TIMEOUT_MS || "8000", 10);
+    return Number.isFinite(n) && n >= 1000 ? n : 8000;
   })(),
   AI_DELIVERY_MAX_TOKENS: (() => {
-    const n = parseInt(process.env.AI_DELIVERY_MAX_TOKENS || "300", 10);
-    return Number.isFinite(n) && n >= 50 ? n : 300;
+    const n = parseInt(process.env.AI_DELIVERY_MAX_TOKENS || "500", 10);
+    return Number.isFinite(n) && n >= 50 ? n : 500;
   })(),
 
   // LivSight core API — single gateway/base URL; auth is {base}/auth/login

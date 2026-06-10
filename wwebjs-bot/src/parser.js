@@ -11,6 +11,11 @@ function stripInvisibleFormatting(text) {
   return text;
 }
 
+/** 0 = nothing to collect at delivery; otherwise minimum 100 FCFA. */
+function isValidOrderAmount(amount) {
+  return amount === 0 || (amount != null && amount >= 100);
+}
+
 /**
  * Extract phone number from text
  * Looks for patterns like: 6xx, 6xxxxx, +237, etc.
@@ -106,9 +111,18 @@ function extractAmount(text) {
     if (amountKw[2]) {
       v *= 1000;
     }
-    if (Number.isFinite(v) && v >= 100) {
+    if (Number.isFinite(v) && isValidOrderAmount(v)) {
       return v;
     }
+  }
+
+  // Explicit zero on its own line (structured format: no cash to collect)
+  const zeroLine = text
+    .split("\n")
+    .map((line) => line.trim())
+    .some((line) => /^(?:montant|prix|total)\s*:\s*0\b/i.test(line) || /^0(?:\s*(?:fcfa|frs|fr|xaf|f))?$/i.test(line));
+  if (zeroLine) {
+    return 0;
   }
 
   // Remove spaces but preserve newlines so digit sequences on separate lines don't merge
@@ -313,10 +327,10 @@ function parseAlternativeFormat(text) {
     }
   }
 
-  if (!amount || amount < 100) {
+  if (amount == null || !isValidOrderAmount(amount)) {
     return {
       valid: false,
-      error: `Format alternatif: Montant invalide: "${amountLine}" - Doit être un montant valide (ex: 15k, 15000)`,
+      error: `Format alternatif: Montant invalide: "${amountLine}" - Doit être 0 (rien à encaisser) ou un montant valide (ex: 15k, 15000)`,
     };
   }
 
@@ -427,10 +441,10 @@ function parseCompactStructuredFormat(text) {
     }
   }
 
-  if (!amount || amount < 100) {
+  if (amount == null || !isValidOrderAmount(amount)) {
     return {
       valid: false,
-      error: `Montant invalide: "${amountLine}" - Doit être un montant valide (ex: 15k, 15000)`,
+      error: `Montant invalide: "${amountLine}" - Doit être 0 (rien à encaisser) ou un montant valide (ex: 15k, 15000)`,
     };
   }
 
@@ -576,12 +590,13 @@ function looksLikeMalformedDeliveryWithParsed(text, parsed) {
   function amountCountsAsSignal() {
     if (rawAmount == null) return false;
     if (/\d+\s*k\b/i.test(stripped)) return true;
+    if (rawAmount === 0) return true;
     if (rawAmount >= 1000) return true;
-    if (phone == null) return rawAmount > 100;
+    if (phone == null) return rawAmount >= 100;
     const phoneDigits = phone.replace(/\D/g, "");
     const amtStr = String(Math.floor(rawAmount));
     if (phoneDigits.includes(amtStr) && amtStr.length >= 3) return false;
-    return rawAmount > 100;
+    return rawAmount >= 100;
   }
 
   /**
@@ -605,12 +620,45 @@ function looksLikeMalformedDeliveryWithParsed(text, parsed) {
     return false;
   }
 
+  if (hasLabeledOrderFields(stripped)) {
+    return true;
+  }
+
   let signals = 0;
   if (phone != null) signals += 1;
   if (amountCountsAsSignal()) signals += 1;
   if (extractQuartier(stripped) != null || hasLocationSignal()) signals += 1;
 
-  return signals >= FORMAT_REMINDER_MIN_SIGNALS;
+  if (signals >= FORMAT_REMINDER_MIN_SIGNALS) {
+    return true;
+  }
+
+  // Phone + product/location line (no parseable amount) — still try AI
+  if (phone != null && hasLocationSignal()) {
+    return true;
+  }
+
+  return false;
+}
+
+/** Labeled vendor format: Numéro / Montant / Lieu / Produit lines. */
+function hasLabeledOrderFields(text) {
+  if (!text || typeof text !== "string") return false;
+  const hasPhone = /(?:num[ée]ro|t[ée]l[ée]phone|phone|contact)\s*[:\s]/i.test(
+    text
+  );
+  const hasAmount = /(?:montant|prix|total|à payer|a payer)\s*[:\s]/i.test(text);
+  const hasPlace = /(?:lieu|quartier|adresse|destination)\s*[:\s]/i.test(text);
+  const hasProduct = /(?:produit|article|colis|pack|commande)\s*[:\s]/i.test(
+    text
+  );
+  return (
+    (hasPhone && hasAmount) ||
+    (hasPhone && hasPlace) ||
+    (hasAmount && hasPlace) ||
+    (hasPhone && hasProduct) ||
+    (hasAmount && hasProduct)
+  );
 }
 
 /**
@@ -634,32 +682,17 @@ function looksLikeMalformedDelivery(text) {
  */
 function getFormatReminderMessage() {
   return (
-    "❌ Format incorrect\n\n" +
-    "Votre livraison n'a pas été enregistrée.\n\n" +
-    "📦 *Format standard (4 lignes) :*\n" +
+    "❌ Commande non enregistrée.\n\n" +
+    "4 lignes (1 info par ligne) :\n" +
     "Numéro\n" +
     "Produit\n" +
-    "Montant\n" +
+    "Montant (0 = rien à encaisser)\n" +
     "Quartier\n\n" +
     "Exemple :\n" +
     "694397546\n" +
     "Pack homme\n" +
     "6000\n" +
-    "Messassi\n\n" +
-    "📦 *Format alternatif (multi-articles) :*\n" +
-    "Quartier\n" +
-    "Article 1\n" +
-    "Article 2\n" +
-    "Montant\n" +
-    "Numéro\n\n" +
-    "Exemple :\n" +
-    "Melen\n" +
-    "Chaussures Nike taille 42\n" +
-    "Ceinture cuir\n" +
-    "18k\n" +
-    "612345678\n\n" +
-    "⚠️ 1 info par ligne — pas de « Numéro : », « Lieu : », etc.\n\n" +
-    "🙏 Merci de renvoyer correctement."
+    "Messassi"
   );
 }
 
@@ -692,6 +725,7 @@ module.exports = {
   isExcludedFromDeliveryParsing,
   looksLikeMalformedDelivery,
   looksLikeMalformedDeliveryWithParsed,
+  hasLabeledOrderFields,
   getFormatReminderMessage,
   extractPhone,
   extractAmount,

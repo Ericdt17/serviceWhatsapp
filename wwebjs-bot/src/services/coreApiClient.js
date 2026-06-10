@@ -11,6 +11,7 @@ const {
   extractTransactionRef,
   isIdempotentReplay,
 } = require("../lib/transactionResponse");
+const { normalizeItemsAndQuantity } = require("../lib/productNormalize");
 
 /** @type {{ token: string, expiresAt: number } | null} */
 let authCache = null;
@@ -296,7 +297,7 @@ async function getClientByWhatsappGroup(whatsappGroupId) {
 }
 
 /**
- * Fetch client catalog packages (cached per keycloakId).
+ * Fetch client catalog packages (cached per client).
  * GET /api/packages?userId={keycloakId}
  */
 async function getPackages(clientKeycloakId, clientUserId = null) {
@@ -335,7 +336,7 @@ async function getPackages(clientKeycloakId, clientUserId = null) {
       context: {
         clientKeycloakId,
         clientUserId: clientUserId ?? "(not scoped)",
-        hint: "Backend /api/packages bug — bot will default to pickup for this order",
+        hint: "Backend /api/packages error — bot will default to pickup for this order",
       },
     });
   }
@@ -370,7 +371,9 @@ function mapParsedToTransaction(parsed, messageText, packageMatch) {
   };
 
   const package_name = String(match.package_name || rawItems).slice(0, 120);
-  const description = rawItems;
+  const description = messageText
+    ? String(messageText).slice(0, 4000)
+    : rawItems;
   const destination_street =
     parsed.quartier || config.CORE_DESTINATION_STREET || "N/A";
 
@@ -414,13 +417,22 @@ async function createTransaction(
   const clientUserId = options.clientUserId ?? null;
   const txUrl = `${base}/api/transactions`;
 
+  const rawItems = parsed.items ? String(parsed.items) : "Colis";
+  const { displayItems, quantity: normalizedQty } =
+    normalizeItemsAndQuantity(rawItems);
+  const parsedForTx = { ...parsed, items: displayItems };
+
   let packageMatch;
   try {
     const catalog = await getPackages(clientKeycloakId, clientUserId);
-    packageMatch = await resolvePackageMatch(parsed.items, catalog, {
+    packageMatch = await resolvePackageMatch(rawItems, catalog, {
       config,
       messageText,
     });
+    packageMatch = {
+      ...packageMatch,
+      quantity: Math.max(normalizedQty, packageMatch.quantity || 1),
+    };
     console.log(
       `   📦 Catalog match: source=${packageMatch.source} method=${packageMatch.matchMethod} package="${packageMatch.package_name}" qty=${packageMatch.quantity}`
     );
@@ -434,13 +446,15 @@ async function createTransaction(
     );
     packageMatch = {
       source: "pickup",
-      package_name: parsed.items ? String(parsed.items).slice(0, 120) : "Colis",
-      quantity: 1,
+      package_name: parsedForTx.items
+        ? String(parsedForTx.items).slice(0, 120)
+        : "Colis",
+      quantity: normalizedQty,
       matchMethod: "none",
     };
   }
 
-  const fields = mapParsedToTransaction(parsed, messageText, packageMatch);
+  const fields = mapParsedToTransaction(parsedForTx, messageText, packageMatch);
 
   if (whatsappMessageId) {
     fields.whatsapp_message_id = whatsappMessageId;

@@ -122,10 +122,56 @@ describe("resolvePackageMatch", () => {
     expect(r.matchMethod).toBe("single_catalog");
   });
 
-  it("no match → pickup with raw text", async () => {
+  it("partial multi-part match → pickup with catalog name for matched part", async () => {
     const r = await resolvePackageMatch("2 robes + 1 sac", catalog);
     expect(r.source).toBe("pickup");
-    expect(r.package_name).toBe("2 robes + 1 sac");
+    expect(r.package_name).toBe("Robe wax — sac");
+    expect(r.quantity).toBe(3);
+    expect(r.matchMethod).toBe("multi_partial");
+  });
+
+  it("no catalog match → pickup with dashed display", async () => {
+    const r = await resolvePackageMatch("2 chairs + 1 table", catalog);
+    expect(r.source).toBe("pickup");
+    expect(r.package_name).toBe("chairs — table");
     expect(r.matchMethod).toBe("none");
+  });
+
+  it("fuzzy match → stock (robes → Robe wax)", async () => {
+    const r = await resolvePackageMatch("2 robes", catalog);
+    expect(r.source).toBe("stock");
+    expect(r.package_name).toBe("Robe wax");
+    expect(r.matchMethod).toBe("fuzzy");
+    expect(r.quantity).toBe(2);
+  });
+
+  it("multi-part same catalog SKU → stock with summed quantity", async () => {
+    const r = await resolvePackageMatch("2 Pack homme + 1 Pack homme", [
+      { id: 10, package_name: "Pack homme" },
+      { id: 11, package_name: "Savon" },
+    ]);
+    expect(r.source).toBe("stock");
+    expect(r.package_name).toBe("Pack homme");
+    expect(r.quantity).toBe(3);
+  });
+
+  it("multi-part different catalog SKUs → pickup with catalog names joined", async () => {
+    const r = await resolvePackageMatch("Pack homme + Savon", [
+      { id: 10, package_name: "Pack homme" },
+      { id: 11, package_name: "Savon" },
+    ]);
+    expect(r.source).toBe("pickup");
+    expect(r.package_name).toBe("Pack homme — Savon");
+    expect(r.matchMethod).toBe("multi_stock_skus");
+    expect(r.quantity).toBe(2);
+  });
+
+  it("multi-part partial catalog match → pickup", async () => {
+    const r = await resolvePackageMatch("Pack homme + unknown item", [
+      { id: 10, package_name: "Pack homme" },
+    ]);
+    expect(r.source).toBe("pickup");
+    expect(r.matchMethod).toBe("multi_partial");
+    expect(r.package_name).toContain("Pack homme");
   });
 });
