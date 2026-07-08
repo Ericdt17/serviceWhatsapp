@@ -319,19 +319,42 @@ async function resolveMultiPartPackageMatch(parts, packages, config) {
     );
   }
 
-  // Multiple distinct stock SKUs — pickup with catalog names joined
-  const displayItems = matched
-    .map((m) => m.pkg.package_name)
-    .join(" — ")
-    .slice(0, 120);
-  const quantity = matched.reduce((sum, m) => sum + m.quantity, 0);
+  // Multiple distinct stock SKUs — stock with one line item per SKU.
+  // Duplicate SKUs across parts are merged by summing their quantities.
+  const items = mergeStockLineItems(matched);
+  const quantity = items.reduce((sum, it) => sum + it.quantity, 0);
   return buildMatchResult({
-    source: "pickup",
-    package_name: displayItems,
+    source: "stock",
+    package_name: items[0].package_name,
     quantity: clampQuantity(quantity),
     matchMethod: "multi_stock_skus",
     quantitySource: "parse",
+    items,
   });
+}
+
+/**
+ * Merge matched parts into stock line items, summing quantities for the same
+ * catalog SKU. Preserves first-seen order.
+ * @param {Array<{ pkg: { id?: number, package_name: string }, quantity: number }>} matched
+ * @returns {Array<{ package_name: string, quantity: number, catalogPackageId: number|null }>}
+ */
+function mergeStockLineItems(matched) {
+  const byKey = new Map();
+  for (const m of matched) {
+    const key = m.pkg.id ?? m.pkg.package_name;
+    const existing = byKey.get(key);
+    if (existing) {
+      existing.quantity = clampQuantity(existing.quantity + m.quantity);
+    } else {
+      byKey.set(key, {
+        package_name: m.pkg.package_name,
+        quantity: clampQuantity(m.quantity),
+        catalogPackageId: m.pkg.id ?? null,
+      });
+    }
+  }
+  return Array.from(byKey.values());
 }
 
 function joinPartsForPickup(parts, partResults) {
@@ -364,6 +387,7 @@ function buildMatchResult({
   confidence = null,
   catalogPackageId = null,
   quantitySource = null,
+  items = null,
 }) {
   return {
     source,
@@ -373,6 +397,7 @@ function buildMatchResult({
     confidence,
     catalogPackageId,
     quantitySource,
+    items: Array.isArray(items) && items.length > 0 ? items : null,
   };
 }
 

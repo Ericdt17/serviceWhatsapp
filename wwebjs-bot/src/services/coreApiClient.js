@@ -403,6 +403,19 @@ function mapParsedToTransaction(parsed, messageText, packageMatch) {
     fields.raw_input = messageText.slice(0, 4000);
   }
 
+  // Multi-product line items. The backend binds these as items[i].* and
+  // deducts stock per line; legacy package_name/quantity above stay set
+  // because bean validation (@NotBlank) runs before items[] resolution.
+  if (Array.isArray(match.items) && match.items.length > 0) {
+    match.items.forEach((item, i) => {
+      const name = String(item.package_name || "").slice(0, 50);
+      const qty = item.quantity > 0 ? Math.trunc(item.quantity) : 1;
+      if (!name) return;
+      fields[`items[${i}].package_name`] = name;
+      fields[`items[${i}].quantity`] = String(qty);
+    });
+  }
+
   return fields;
 }
 

@@ -155,15 +155,33 @@ describe("resolvePackageMatch", () => {
     expect(r.quantity).toBe(3);
   });
 
-  it("multi-part different catalog SKUs → pickup with catalog names joined", async () => {
+  it("multi-part different catalog SKUs → stock with per-SKU line items", async () => {
     const r = await resolvePackageMatch("Pack homme + Savon", [
       { id: 10, package_name: "Pack homme" },
       { id: 11, package_name: "Savon" },
     ]);
-    expect(r.source).toBe("pickup");
-    expect(r.package_name).toBe("Pack homme — Savon");
+    expect(r.source).toBe("stock");
     expect(r.matchMethod).toBe("multi_stock_skus");
+    expect(r.package_name).toBe("Pack homme");
     expect(r.quantity).toBe(2);
+    expect(r.items).toEqual([
+      { package_name: "Pack homme", quantity: 1, catalogPackageId: 10 },
+      { package_name: "Savon", quantity: 1, catalogPackageId: 11 },
+    ]);
+  });
+
+  it("multi-part distinct SKUs merges duplicate SKUs and sums quantities", async () => {
+    const r = await resolvePackageMatch("2 Pack homme + 3 Savon + 1 Pack homme", [
+      { id: 10, package_name: "Pack homme" },
+      { id: 11, package_name: "Savon" },
+    ]);
+    expect(r.source).toBe("stock");
+    expect(r.matchMethod).toBe("multi_stock_skus");
+    expect(r.items).toEqual([
+      { package_name: "Pack homme", quantity: 3, catalogPackageId: 10 },
+      { package_name: "Savon", quantity: 3, catalogPackageId: 11 },
+    ]);
+    expect(r.quantity).toBe(6);
   });
 
   it("multi-part partial catalog match → pickup", async () => {

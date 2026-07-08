@@ -229,4 +229,44 @@ describe("coreApiClient auth retry", () => {
     expect(fields.description).toBe(messageText);
     expect(fields.quantity).toBe(2);
   });
+
+  it("mapParsedToTransaction emits items[i] fields for multi-product stock match", () => {
+    const { mapParsedToTransaction } = require("../../services/coreApiClient");
+    const messageText = "699000002\nPack homme + Savon\n20000\nBonapriso";
+    const fields = mapParsedToTransaction(
+      {
+        phone: "699000002",
+        items: "Pack homme + Savon",
+        amount_due: 20000,
+        quartier: "Bonapriso",
+      },
+      messageText,
+      {
+        source: "stock",
+        package_name: "Pack homme",
+        quantity: 2,
+        matchMethod: "multi_stock_skus",
+        items: [
+          { package_name: "Pack homme", quantity: 1, catalogPackageId: 10 },
+          { package_name: "Savon", quantity: 1, catalogPackageId: 11 },
+        ],
+      }
+    );
+    expect(fields.source).toBe("stock");
+    expect(fields.package_name).toBe("Pack homme");
+    expect(fields["items[0].package_name"]).toBe("Pack homme");
+    expect(fields["items[0].quantity"]).toBe("1");
+    expect(fields["items[1].package_name"]).toBe("Savon");
+    expect(fields["items[1].quantity"]).toBe("1");
+  });
+
+  it("mapParsedToTransaction omits items fields when match has no line items", () => {
+    const { mapParsedToTransaction } = require("../../services/coreApiClient");
+    const fields = mapParsedToTransaction(
+      { phone: "699000003", items: "robes", amount_due: 12000, quartier: "Akwa" },
+      "699000003\n2 robes\n12000\nAkwa",
+      { source: "stock", package_name: "Robe wax", quantity: 2 }
+    );
+    expect(fields["items[0].package_name"]).toBeUndefined();
+  });
 });
