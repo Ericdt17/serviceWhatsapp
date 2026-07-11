@@ -57,6 +57,7 @@ async function saveDelivery({
   parsed,
   messageText,
   whatsappMessageId,
+  messageTimestampSec,
   group,
   agencyId,
   linkedClient,
@@ -87,7 +88,10 @@ async function saveDelivery({
         parsed,
         messageText,
         whatsappMessageId,
-        { clientUserId: linkedClient.raw?.id ?? linkedClient.raw?.user_id }
+        {
+          clientUserId: linkedClient.raw?.id ?? linkedClient.raw?.user_id,
+          messageTimestampSec,
+        }
       );
 
       const ref =
@@ -125,6 +129,9 @@ async function saveDelivery({
           `   🏷️  Source: ${result._packageMatch.source} (${result._packageMatch.matchMethod}) → ${result._packageMatch.package_name}`
         );
       }
+      if (result.scheduled_delivery_date) {
+        console.log(`   📅 Livraison prévue: ${result.scheduled_delivery_date}`);
+      }
       console.log("=".repeat(60) + "\n");
 
       if (
@@ -133,8 +140,12 @@ async function saveDelivery({
         !result._idempotentReplay
       ) {
         try {
+          const scheduledLine = result.scheduled_delivery_date
+            ? `📅 Livraison prévue le ${result.scheduled_delivery_date}\n`
+            : "";
           const confirmMsg =
             `✅ Commande enregistrée (${ref})\n` +
+            scheduledLine +
             `📱 ${parsed.phone}\n` +
             `📦 ${parsed.items}\n` +
             `💰 ${parsed.amount_due || 0} FCFA`;
@@ -250,6 +261,7 @@ async function handleDelivery({
         parsed: deliveryData,
         messageText,
         whatsappMessageId,
+        messageTimestampSec: msg.timestamp,
         group,
         agencyId,
         linkedClient,
@@ -336,6 +348,7 @@ async function handleDelivery({
           parsed: normalized,
           messageText,
           whatsappMessageId,
+          messageTimestampSec: msg.timestamp,
           group,
           agencyId,
           linkedClient,

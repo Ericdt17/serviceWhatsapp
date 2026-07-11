@@ -58,6 +58,8 @@ API_PORT=3000
 # VPS: production | local: development
 NODE_ENV=development
 TIME_ZONE=Africa/Douala
+# Orders at or after this hour (local) default to next-day delivery (default 18)
+SCHEDULED_DELIVERY_CUTOFF_HOUR=18
 ALLOWED_ORIGINS=http://localhost:5173
 
 # ---------------------------

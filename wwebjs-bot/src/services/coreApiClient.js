@@ -12,6 +12,7 @@ const {
   isIdempotentReplay,
 } = require("../lib/transactionResponse");
 const { normalizeItemsAndQuantity } = require("../lib/productNormalize");
+const { resolveScheduledDeliveryDate } = require("../lib/scheduledDeliveryDate");
 
 /** @type {{ token: string, expiresAt: number } | null} */
 let authCache = null;
@@ -362,7 +363,7 @@ function clearCatalogCache() {
   catalogCache.clear();
 }
 
-function mapParsedToTransaction(parsed, messageText, packageMatch) {
+function mapParsedToTransaction(parsed, messageText, packageMatch, schedulingOptions = {}) {
   const rawItems = parsed.items ? String(parsed.items) : "Colis";
   const match = packageMatch || {
     source: "pickup",
@@ -416,6 +417,14 @@ function mapParsedToTransaction(parsed, messageText, packageMatch) {
     });
   }
 
+  fields.scheduled_delivery_date = resolveScheduledDeliveryDate({
+    messageText,
+    messageTimestampSec: schedulingOptions.messageTimestampSec,
+    timezone: schedulingOptions.timezone || config.TIME_ZONE,
+    cutoffHour:
+      schedulingOptions.cutoffHour ?? config.SCHEDULED_DELIVERY_CUTOFF_HOUR,
+  });
+
   return fields;
 }
 
@@ -467,7 +476,10 @@ async function createTransaction(
     };
   }
 
-  const fields = mapParsedToTransaction(parsedForTx, messageText, packageMatch);
+  const fields = mapParsedToTransaction(parsedForTx, messageText, packageMatch, {
+    messageTimestampSec: options.messageTimestampSec,
+  });
+  console.log(`   📅 Scheduled delivery date: ${fields.scheduled_delivery_date}`);
 
   if (whatsappMessageId) {
     fields.whatsapp_message_id = whatsappMessageId;

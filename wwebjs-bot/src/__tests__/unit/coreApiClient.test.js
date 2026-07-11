@@ -269,4 +269,26 @@ describe("coreApiClient auth retry", () => {
     );
     expect(fields["items[0].package_name"]).toBeUndefined();
   });
+
+  it("mapParsedToTransaction includes scheduled_delivery_date", () => {
+    const { mapParsedToTransaction } = require("../../services/coreApiClient");
+    const fields = mapParsedToTransaction(
+      { phone: "699000004", items: "robes", amount_due: 12000, quartier: "Akwa" },
+      "699000004\n2 robes\n12000\nAkwa",
+      { source: "pickup", package_name: "robes", quantity: 2 },
+      { messageTimestampSec: Math.floor(new Date("2026-07-11T16:30:00Z").getTime() / 1000) }
+    );
+    expect(fields.scheduled_delivery_date).toBe("2026-07-11");
+  });
+
+  it("mapParsedToTransaction schedules tomorrow after cutoff hour", () => {
+    const { mapParsedToTransaction } = require("../../services/coreApiClient");
+    const fields = mapParsedToTransaction(
+      { phone: "699000005", items: "robes", amount_due: 12000, quartier: "Akwa" },
+      "699000005\n2 robes\n12000\nAkwa",
+      { source: "pickup", package_name: "robes", quantity: 2 },
+      { messageTimestampSec: Math.floor(new Date("2026-07-11T17:30:00Z").getTime() / 1000) }
+    );
+    expect(fields.scheduled_delivery_date).toBe("2026-07-12");
+  });
 });

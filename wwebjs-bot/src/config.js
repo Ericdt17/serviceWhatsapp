@@ -28,6 +28,11 @@ module.exports = {
 
   // Timezone for date filtering (must match the business timezone — Cameroon = UTC+1)
   TIME_ZONE: process.env.TIME_ZONE || "Africa/Douala",
+  // Orders received at or after this hour (local TIME_ZONE) default to next-day delivery
+  SCHEDULED_DELIVERY_CUTOFF_HOUR: (() => {
+    const n = parseInt(process.env.SCHEDULED_DELIVERY_CUTOFF_HOUR || "18", 10);
+    return Number.isFinite(n) && n >= 0 && n <= 23 ? n : 18;
+  })(),
 
   // OpenAI fallback when strict parse fails but message looks like a delivery (see looksLikeMalformedDelivery)
   // OPENAI_API_KEY: required when AI_DELIVERY_FALLBACK_ENABLED=true
