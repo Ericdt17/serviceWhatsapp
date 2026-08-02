@@ -19,6 +19,7 @@ const { getBotHealthStatus } = require("./lib/botHealthStatus");
 const botRuntimeState = require("./lib/botRuntimeState");
 const botMetrics = require("./lib/botMetrics");
 const botLogger = require("./lib/botLogger");
+const { createMessageIngress } = require("./lib/messageIngress");
 
 // Log startup time
 const startupStartTime = Date.now();
@@ -398,9 +399,7 @@ client.on("disconnected", (reason) => {
 console.log("📋 Registering message event listener...");
 console.log("🔍 Listening for 'message' and 'message_create' events");
 
-const recentMessageIds = new Set();
-/** @type {Map<string, { timer: NodeJS.Timeout, msg: object }>} */
-const pendingMessageCreate = new Map();
+const messageIngress = createMessageIngress({ delayMs: 400 });
 
 function processIncomingMessage(msg, source) {
   if (source === "message_create") {
@@ -413,42 +412,8 @@ function processIncomingMessage(msg, source) {
 }
 
 function handleIncomingMessage(msg, source) {
-  const id = msg?.id?._serialized;
-
-  // Prefer `message` over `message_create` — create often fires first with incomplete data.
-  if (source === "message") {
-    if (id && pendingMessageCreate.has(id)) {
-      clearTimeout(pendingMessageCreate.get(id).timer);
-      pendingMessageCreate.delete(id);
-    }
-    if (id) {
-      if (recentMessageIds.has(id)) return;
-      recentMessageIds.add(id);
-      if (recentMessageIds.size > 500) recentMessageIds.clear();
-    }
-    return processIncomingMessage(msg, source);
-  }
-
-  // message_create: wait briefly in case `message` arrives with full body/chat
-  if (id && recentMessageIds.has(id)) return;
-
-  if (id && pendingMessageCreate.has(id)) {
-    clearTimeout(pendingMessageCreate.get(id).timer);
-  }
-
-  const timer = setTimeout(() => {
-    pendingMessageCreate.delete(id);
-    if (recentMessageIds.has(id)) return;
-    recentMessageIds.add(id);
-    if (recentMessageIds.size > 500) recentMessageIds.clear();
-    processIncomingMessage(msg, "message_create");
-  }, 400);
-
-  if (id) {
-    pendingMessageCreate.set(id, { timer, msg });
-  } else {
-    processIncomingMessage(msg, "message_create");
-  }
+  // Dedup by WA id + fingerprint (from|ts|body) — id alone fails when create omits id
+  messageIngress.handle(msg, source, processIncomingMessage);
 }
 
 client.on("message", (msg) => handleIncomingMessage(msg, "message"));
