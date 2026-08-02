@@ -49,21 +49,38 @@ function formatStatusMessage(status) {
 }
 
 /**
+ * Resolve whether the message is from a group.
+ * Prefer explicit options (avoids getChat); otherwise try getChat with msg.from fallback.
+ */
+async function resolveIsGroupMessage(msg, options = {}) {
+  if (typeof options.isGroupChat === "boolean") {
+    return options.isGroupChat;
+  }
+  if (options.chatId) {
+    return String(options.chatId).endsWith("@g.us");
+  }
+  try {
+    const chat = await msg.getChat();
+    const chatId = chat?.id?._serialized || msg.from || "";
+    return chat?.isGroup === true || String(chatId).endsWith("@g.us");
+  } catch {
+    return String(msg.from || "").endsWith("@g.us");
+  }
+}
+
+/**
  * Handle #ping / #status in direct messages only.
+ * When options.chatId / isGroupChat are passed, does not require getChat()
+ * (WhatsApp LID / Store bugs often break getChat with opaque "r" errors).
  * @returns {boolean} true if handled (caller should return)
  */
-async function handleStaffCommand(msg, client) {
+async function handleStaffCommand(msg, client, options = {}) {
   const messageText = msg.body || "";
   if (!isStaffCommand(messageText)) {
     return false;
   }
 
-  const chat = await msg.getChat();
-  const chatId = chat.id?._serialized || msg.from || "";
-  const isGroupChat =
-    chat.isGroup === true || String(chatId).endsWith("@g.us");
-
-  if (isGroupChat) {
+  if (await resolveIsGroupMessage(msg, options)) {
     botLogger.staff.debug({ event: "staff_command_ignored_group" }, "staff cmd in group");
     return false;
   }
@@ -90,4 +107,5 @@ module.exports = {
   isStaffCommand,
   formatStatusMessage,
   handleStaffCommand,
+  resolveIsGroupMessage,
 };

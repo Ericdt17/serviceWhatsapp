@@ -67,7 +67,7 @@ const client = new Client({
       "--disable-accelerated-2d-canvas",
       "--no-first-run",
       "--no-zygote",
-      "--single-process",
+      // Avoid --single-process: causes Store/getChat failures ("r") on Linux VPS
       "--disable-gpu",
       "--disable-extensions",
       "--disable-background-networking",
@@ -82,12 +82,12 @@ const client = new Client({
       "--force-color-profile=srgb",
       "--metrics-recording-only",
       "--mute-audio",
-      // Additional Windows-specific fixes
       "--disable-web-security",
       "--disable-features=VizDisplayCompositor",
     ],
     // Optimize startup
     timeout: 120000, // 120 seconds timeout for browser launch
+    protocolTimeout: 180000,
     // Ignore default args that might cause issues
     ignoreDefaultArgs: ["--disable-extensions"],
   },

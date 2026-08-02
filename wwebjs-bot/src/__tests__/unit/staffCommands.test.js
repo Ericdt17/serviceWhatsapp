@@ -55,6 +55,23 @@ describe("staffCommands", () => {
     expect(msg.reply).not.toHaveBeenCalled();
   });
 
+  it("handleStaffCommand #ping works without getChat (LID / Store failure)", async () => {
+    const { handleStaffCommand } = require("../../handlers/staffCommands");
+    const msg = {
+      body: "#ping",
+      from: "185533997277186@lid",
+      reply: jest.fn().mockResolvedValue(undefined),
+      getChat: jest.fn().mockRejectedValue(new Error("r")),
+    };
+    const handled = await handleStaffCommand(msg, {}, {
+      chatId: msg.from,
+      isGroupChat: false,
+    });
+    expect(handled).toBe(true);
+    expect(msg.getChat).not.toHaveBeenCalled();
+    expect(msg.reply).toHaveBeenCalledWith(expect.stringMatching(/Pong/));
+  });
+
   it("handleStaffCommand formats #status from health snapshot", async () => {
     const health = require("../../lib/botHealthStatus");
     health.getBotHealthStatus.mockResolvedValue({

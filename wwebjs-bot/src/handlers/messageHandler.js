@@ -22,6 +22,37 @@ const botLogger = require("../lib/botLogger");
  * @param {object} msg    - WhatsApp message object
  * @param {object} client - WhatsApp client
  */
+/**
+ * Resolve chat metadata without crashing when WhatsApp Store/getChat fails
+ * (opaque "r" errors, LID sync, authenticated-fallback race).
+ */
+async function resolveChatContext(msg) {
+  const fallbackId = msg.from || msg.to || "";
+  try {
+    const chat = await msg.getChat();
+    const chatId = chat?.id?._serialized || fallbackId;
+    return {
+      chat,
+      chatId,
+      isGroupChat: chat?.isGroup === true || String(chatId).endsWith("@g.us"),
+      groupName: chat?.name || "Unnamed Group",
+      getChatFailed: false,
+    };
+  } catch (err) {
+    const chatId = String(fallbackId);
+    console.warn(
+      `   ⚠️  getChat() failed (${err.message || err}) — falling back to msg.from=${chatId || "N/A"}`
+    );
+    return {
+      chat: null,
+      chatId,
+      isGroupChat: chatId.endsWith("@g.us"),
+      groupName: "Unnamed Group",
+      getChatFailed: true,
+    };
+  }
+}
+
 async function onMessage(msg, client) {
   try {
     console.log("🔔 MESSAGE EVENT FIRED - Bot received a message!");
@@ -31,18 +62,31 @@ async function onMessage(msg, client) {
       return;
     }
 
-    const chat = await msg.getChat();
     const messageText = msg.body || "";
-    const chatId = chat.id?._serialized || msg.from || "";
-    const isGroupChat =
-      chat.isGroup === true || String(chatId).endsWith("@g.us");
 
-    if (await handleStaffCommand(msg, client)) {
+    // Staff cmds first — do not depend on getChat() (breaks with LID / Store bugs)
+    const earlyChatId = msg.from || "";
+    const earlyIsGroup = String(earlyChatId).endsWith("@g.us");
+    if (
+      await handleStaffCommand(msg, client, {
+        chatId: earlyChatId,
+        isGroupChat: earlyIsGroup,
+      })
+    ) {
       return;
     }
 
+    const { chat, chatId, isGroupChat, groupName, getChatFailed } =
+      await resolveChatContext(msg);
+
     botLogger.verboseConsole("\n🔍 DEBUG - Raw message received:");
-    botLogger.verboseConsole("   isGroup:", chat.isGroup, "→ treated as group:", isGroupChat);
+    botLogger.verboseConsole(
+      "   isGroup:",
+      chat?.isGroup,
+      "→ treated as group:",
+      isGroupChat,
+      getChatFailed ? "(getChat fallback)" : ""
+    );
     botLogger.verboseConsole("   groupId:", chatId || "N/A");
     botLogger.verboseConsole("   msg.from:", msg.from || "N/A");
     botLogger.verboseConsole("   targetGroupId:", config.GROUP_ID);
@@ -57,7 +101,6 @@ async function onMessage(msg, client) {
     const whatsappGroupId = chatId.endsWith("@g.us")
       ? chatId
       : msg.from;
-    const groupName = chat.name || "Unnamed Group";
     const targetGroupId = config.GROUP_ID;
 
     // ── #link command ───────────────────────────────────────────────────
@@ -231,7 +274,10 @@ async function onMessage(msg, client) {
 
     console.log("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n");
   } catch (error) {
-    console.error("⚠️  Error processing message:", error.message);
+    console.error("⚠️  Error processing message:", error.message || error);
+    if (error?.stack) {
+      console.error(error.stack);
+    }
     console.log("   Message from:", msg.from || "Unknown");
     console.log("   Message preview:", (msg.body || "").substring(0, 50) + "\n");
     botAlerts.notifyMessageError(error, msg.from);
