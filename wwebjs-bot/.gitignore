@@ -36,6 +36,7 @@ Thumbs.db
 !docs/PROD_ROADMAP.md
 !docs/QR_RECOVERY.md
 !docs/OPS_RUNBOOK.md
+!devops/README.md
 !deploy/
 
 # Jest / coverage output

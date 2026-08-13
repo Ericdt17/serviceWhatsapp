@@ -133,6 +133,24 @@ Cron example:
 
 Archives: `../backups/wa-session/wa-session-{CLIENT_ID}-*.tar.gz` (keeps last 7 by default).
 
+### Health watchdog (auto-restart when WhatsApp down)
+
+Often a PM2 restart restores WhatsApp **without** scanning QR (session still on disk). Cron watches `/health` and restarts after consecutive failures.
+
+```bash
+# As user deploy — crontab (see devops/crontab.example)
+*/5 * * * * cd /opt/livsight-whatsapp-core/wwebjs-bot && bash devops/watchdog-bot-health.sh >> logs/watchdog.log 2>&1
+```
+
+```bash
+curl -s http://127.0.0.1:3099/health
+BOT_WATCHDOG_DRY_RUN=1 bash devops/watchdog-bot-health.sh
+tail -50 logs/watchdog.log
+```
+
+Full behaviour, env vars, and file index: [../devops/README.md](../devops/README.md).  
+If restart leaves the bot `UNPAIRED`, follow [QR_RECOVERY.md](./QR_RECOVERY.md).
+
 ---
 
 ## 5. Uptime Kuma & domaine health

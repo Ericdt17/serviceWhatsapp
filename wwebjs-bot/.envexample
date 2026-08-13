@@ -165,6 +165,11 @@ BOT_ALERT_WEBHOOK_URL=
 # GET http://127.0.0.1:3099/health → 200 when WhatsApp + Core API auth OK
 BOT_HEALTH_PORT=3099
 BOT_HEALTH_BIND=127.0.0.1
+# Cron watchdog (devops/watchdog-bot-health.sh on VPS — see devops/README.md):
+# BOT_HEALTH_LOCAL_URL=http://127.0.0.1:3099/health
+# BOT_WATCHDOG_FAIL_THRESHOLD=3
+# PM2_APP_NAME=whatsapp-bot-core
+# BOT_WATCHDOG_DRY_RUN=0
 
 # ---------------------------
 # Cloudinary (optional)
@@ -172,3 +177,7 @@ BOT_HEALTH_BIND=127.0.0.1
 CLOUDINARY_CLOUD_NAME=
 CLOUDINARY_API_KEY=
 CLOUDINARY_API_SECRET=
+
+# Exit process on LOGOUT/UNPAIRED so PM2 restarts (VPS). Local: set false to avoid nodemon loops.
+# BOT_EXIT_ON_FATAL_DISCONNECT=true
+# BOT_EXIT_ON_FATAL_DELAY_MS=8000

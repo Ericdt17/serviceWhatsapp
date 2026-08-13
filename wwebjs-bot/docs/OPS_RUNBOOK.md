@@ -66,7 +66,11 @@ pm2 logs whatsapp-bot-core --lines 80
 bash scripts/verify-bot-health.sh
 ls -la failed-orders/
 tail -20 logs/bot-core-out.log
+tail -50 logs/watchdog.log
+crontab -l | grep watchdog
 ```
+
+**Auto-restart:** cron runs [devops/watchdog-bot-health.sh](../devops/watchdog-bot-health.sh) every 5 minutes (user `deploy`). DevOps folder: [../devops/](../devops/).
 
 Log rotation: install [scripts/logrotate-bot.conf](../scripts/logrotate-bot.conf) as `/etc/logrotate.d/livsight-bot` (see [DEPLOY_STAGING.md](./DEPLOY_STAGING.md)).
 

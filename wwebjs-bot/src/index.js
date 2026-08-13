@@ -105,9 +105,30 @@ const client = new Client({
 // Show QR code in terminal when authentication needed
 let qrShown = false;
 
+function exitOnFatalWhatsApp(reason) {
+  const enabled = process.env.BOT_EXIT_ON_FATAL_DISCONNECT;
+  // default ON unless explicitly "false" / "0"
+  if (enabled === "false" || enabled === "0") {
+    console.log(
+      `[waReconnect] BOT_EXIT_ON_FATAL_DISCONNECT disabled — staying up after fatal (${reason})`
+    );
+    return;
+  }
+  const delayMs = Number(process.env.BOT_EXIT_ON_FATAL_DELAY_MS) || 8000;
+  console.log(
+    `[waReconnect] Fatal WhatsApp (${reason}) — exiting in ${Math.round(delayMs / 1000)}s so PM2 can restart`
+  );
+  setTimeout(() => {
+    process.exit(1);
+  }, delayMs).unref();
+}
+
 const waReconnect = createReconnectScheduler({
   client,
   isShuttingDown,
+  onFatal: (reason) => {
+    exitOnFatalWhatsApp(reason);
+  },
   onScheduled: (reason, attempt, delayMs) => {
     botMetrics.increment("waReconnects");
     botLogger.wa.info(
@@ -375,6 +396,7 @@ client.on("auth_failure", (msg) => {
   console.error("❌ AUTHENTICATION FAILED!");
   console.error("Error:", msg);
   console.error("=".repeat(60) + "\n");
+  exitOnFatalWhatsApp("AUTH_FAILURE");
 });
 
 // When client is disconnected
