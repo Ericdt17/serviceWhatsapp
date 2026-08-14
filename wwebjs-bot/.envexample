@@ -165,6 +165,11 @@ BOT_ALERT_WEBHOOK_URL=
 # GET http://127.0.0.1:3099/health → 200 when WhatsApp + Core API auth OK
 BOT_HEALTH_PORT=3099
 BOT_HEALTH_BIND=127.0.0.1
+# Cron watchdog (devops/watchdog-bot-health.sh on VPS — see devops/README.md):
+# BOT_HEALTH_LOCAL_URL=http://127.0.0.1:3099/health
+# BOT_WATCHDOG_FAIL_THRESHOLD=3
+# PM2_APP_NAME=whatsapp-bot-core
+# BOT_WATCHDOG_DRY_RUN=0
 
 # ---------------------------
 # Cloudinary (optional)
@@ -172,3 +177,15 @@ BOT_HEALTH_BIND=127.0.0.1
 CLOUDINARY_CLOUD_NAME=
 CLOUDINARY_API_KEY=
 CLOUDINARY_API_SECRET=
+
+# Exit process on LOGOUT/UNPAIRED so PM2 restarts (VPS). Local: set false to avoid nodemon loops.
+# BOT_EXIT_ON_FATAL_DISCONNECT=true
+# BOT_EXIT_ON_FATAL_DELAY_MS=8000
+# Watchdog: if 'ready' doesn't fire within this ms after authenticated, clear session + exit for fresh QR (default 60000)
+# BOT_READY_TIMEOUT_MS=60000
+
+# Local seed: npm run seed:local-tx (5 stock + 5 pickup for today)
+# Docs: local-dev/README.md
+# CORE_SEED_CLIENT_KEYCLOAK_ID=e25791eb-c678-4bf8-acee-aa9117a7c819
+# CORE_SEED_STOCK=5
+# CORE_SEED_PICKUP=5

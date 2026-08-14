@@ -12,6 +12,7 @@ node_modules/
 auth/
 auth-dev/
 .wwebjs_auth/
+.wwebjs_cache/
 # Database
 data/
 reports/
@@ -26,6 +27,9 @@ qr-code.png
 .DS_Store
 Thumbs.db
 
+# Local fixtures (catalog dumps, WhatsApp test messages) — not for git
+local-dev/
+
 # Documentation (keep only README.md + test suite doc)
 *.md
 !README.md
@@ -36,6 +40,7 @@ Thumbs.db
 !docs/PROD_ROADMAP.md
 !docs/QR_RECOVERY.md
 !docs/OPS_RUNBOOK.md
+!devops/README.md
 !deploy/
 
 # Jest / coverage output

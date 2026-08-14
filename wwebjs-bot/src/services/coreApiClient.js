@@ -363,18 +363,28 @@ function clearCatalogCache() {
   catalogCache.clear();
 }
 
+/** Core Transaction.packageName @Size(max=50) */
+const CORE_PACKAGE_NAME_MAX = 50;
+/** Core Transaction.packageDescription @Size(max=160) */
+const CORE_PACKAGE_DESCRIPTION_MAX = 160;
+
 function mapParsedToTransaction(parsed, messageText, packageMatch, schedulingOptions = {}) {
   const rawItems = parsed.items ? String(parsed.items) : "Colis";
   const match = packageMatch || {
     source: "pickup",
-    package_name: rawItems.slice(0, 120),
+    package_name: rawItems.slice(0, CORE_PACKAGE_NAME_MAX),
     quantity: 1,
   };
 
-  const package_name = String(match.package_name || rawItems).slice(0, 120);
-  const description = messageText
-    ? String(messageText).slice(0, 4000)
-    : rawItems;
+  // Short product blurb for Core (@Size max 160). Full WhatsApp text → raw_input only.
+  const package_name = String(match.package_name || rawItems).slice(
+    0,
+    CORE_PACKAGE_NAME_MAX
+  );
+  const description = String(package_name || rawItems).slice(
+    0,
+    CORE_PACKAGE_DESCRIPTION_MAX
+  );
   const destination_street =
     parsed.quartier || config.CORE_DESTINATION_STREET || "N/A";
 

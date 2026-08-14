@@ -221,6 +221,8 @@ function notifyReady() {
 
 function onQrShown() {
   if (!config().webhookUrl) return;
+  // Immediate ping so operator knows to scan now, not 20 min later.
+  alertWithCooldown("qr-required", msg.qrRequired(), 90000);
   scheduleQrStaleAlert(config().qrStaleMs);
 }
 
@@ -403,6 +405,12 @@ function notifyApiError(method, path, error) {
   );
 }
 
+function notifySessionRestoreStuck() {
+  if (!config().webhookUrl) return;
+  // No cooldown — this fires once before process.exit(0), bot restarts immediately.
+  sendBotAlert(msg.sessionRestoreStuck());
+}
+
 function notifyProcessError(kind, error) {
   if (!config().webhookUrl) return;
   alertWithCooldown(
@@ -505,6 +513,7 @@ module.exports = {
   notifyStartup,
   notifyMessageError,
   notifyReportFailed,
+  notifySessionRestoreStuck,
   notifyProcessError,
   notifyApiError,
   __resetForTests,

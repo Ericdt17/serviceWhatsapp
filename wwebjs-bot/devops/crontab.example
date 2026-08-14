@@ -1,0 +1,10 @@
+# LivSight bot VPS — crontab examples (user: deploy)
+# Install: crontab -e  then paste the active lines below.
+#
+# Full docs: wwebjs-bot/devops/README.md
+
+# Health watchdog — restart PM2 if WhatsApp not CONNECTED for 3 consecutive checks (~15 min)
+*/5 * * * * cd /opt/livsight-whatsapp-core/wwebjs-bot && bash devops/watchdog-bot-health.sh >> logs/watchdog.log 2>&1
+
+# WhatsApp LocalAuth session backup (nightly)
+0 3 * * * cd /opt/livsight-whatsapp-core/wwebjs-bot && bash scripts/backup-wa-session.sh >> logs/wa-backup.log 2>&1

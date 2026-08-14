@@ -193,6 +193,41 @@ describe("coreApiClient auth retry", () => {
     expect(String(packagesCall[0])).toContain("userId=client-kc");
   });
 
+  it("createTransaction throws structured error on HTTP 400 packageDescription", async () => {
+    const {
+      createTransaction,
+      clearAuthCache,
+      clearCatalogCache,
+    } = require("../../services/coreApiClient");
+    clearAuthCache();
+    clearCatalogCache();
+
+    global.fetch
+      .mockResolvedValueOnce(loginResponse("token-a"))
+      .mockResolvedValueOnce(jsonResponse(200, [{ package_name: "Savon", user_id: 1 }]))
+      .mockResolvedValueOnce(
+        jsonResponse(400, { packageDescription: "size must be between 0 and 160" })
+      );
+
+    await expect(
+      createTransaction(
+        "client-kc",
+        {
+          phone: "658635603",
+          items: "savons",
+          amount_due: 10000,
+          quartier: "douala",
+        },
+        "- nom: test\n- tel: 658635603\n- savons\n- douala",
+        "true_120363@g.us_FAIL400",
+        { clientUserId: 1 }
+      )
+    ).rejects.toMatchObject({
+      status: 400,
+      message: expect.stringMatching(/400|packageDescription|size must be between/i),
+    });
+  });
+
   it("mapParsedToTransaction omits amount when amount_due is 0", () => {
     const { mapParsedToTransaction } = require("../../services/coreApiClient");
     const messageText = "690829269\n01 Savon BOASUN\n0\nCarrefour SHO";
@@ -209,10 +244,11 @@ describe("coreApiClient auth retry", () => {
     expect(fields.cash_collect).toBe("false");
     expect(fields.amount).toBeUndefined();
     expect(fields.package_name).toBe("01 Savon BOASUN");
-    expect(fields.description).toBe(messageText);
+    expect(fields.description).toBe("01 Savon BOASUN");
+    expect(fields.raw_input).toBe(messageText);
   });
 
-  it("mapParsedToTransaction uses message text as description (not duplicate package_name)", () => {
+  it("mapParsedToTransaction uses package_name as description; full text in raw_input", () => {
     const { mapParsedToTransaction } = require("../../services/coreApiClient");
     const messageText = "699000001\n2 robes\n12000\nAkwa";
     const fields = mapParsedToTransaction(
@@ -226,8 +262,29 @@ describe("coreApiClient auth retry", () => {
       { source: "pickup", package_name: "robes", quantity: 2 }
     );
     expect(fields.package_name).toBe("robes");
-    expect(fields.description).toBe(messageText);
+    expect(fields.description).toBe("robes");
+    expect(fields.raw_input).toBe(messageText);
     expect(fields.quantity).toBe(2);
+  });
+
+  it("mapParsedToTransaction keeps long WhatsApp body only in raw_input", () => {
+    const { mapParsedToTransaction } = require("../../services/coreApiClient");
+    const messageText = `690000000\n${"x".repeat(200)}\n1000\nAkwa`;
+    const fields = mapParsedToTransaction(
+      {
+        phone: "690000000",
+        items: "x".repeat(80),
+        amount_due: 1000,
+        quartier: "Akwa",
+      },
+      messageText,
+      { source: "pickup", package_name: "x".repeat(80), quantity: 1 }
+    );
+    expect(fields.package_name.length).toBe(50);
+    expect(fields.description).toBe(fields.package_name);
+    expect(fields.description.length).toBeLessThanOrEqual(160);
+    expect(fields.raw_input).toBe(messageText);
+    expect(fields.raw_input.length).toBeGreaterThan(160);
   });
 
   it("mapParsedToTransaction emits items[i] fields for multi-product stock match", () => {

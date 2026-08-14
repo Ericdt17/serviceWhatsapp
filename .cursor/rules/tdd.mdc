@@ -1,0 +1,45 @@
+---
+description: Test-driven development (TDD) for features and bug fixes
+alwaysApply: true
+---
+
+# TDD (required)
+
+This repo uses **test-driven development**. For behavior changes (features and bug fixes), do not ship implementation without tests.
+
+## Cycle (red → green → refactor)
+
+1. **Red** — Write or extend a failing Jest test that expresses the desired behavior.
+2. **Green** — Implement the **smallest** change that makes the test pass.
+3. **Refactor** — Clean up with tests still green.
+4. Re-run the relevant tests before considering the work done.
+
+## Where tests live (`wwebjs-bot/`)
+
+| Kind | Path | Command |
+|------|------|---------|
+| Unit | `src/__tests__/unit/` | `npm test` / `npx jest path/to/file.test.js` |
+| Integration (legacy API) | `src/__tests__/integration/` | same Jest run |
+| Real DB | `src/__tests__/db/` | `npm run test:db:integration` |
+
+Prefer **unit** tests with mocks for WhatsApp handlers, Core API client, parsers, and lib helpers. Do not require a live WhatsApp session for new coverage — mock `msg` / `client` / `fetch`.
+
+## Must cover with tests when touching
+
+- Message / delivery / status handlers (behavior via mocks)
+- `coreApiClient` mapping and error paths
+- Parser / AI fallback gates (when changing parse or fallback rules)
+- Alerts, reconnect, idempotency, circuit breaker, catalog match
+
+## Do not
+
+- Implement first, then “add tests later”
+- Delete or skip failing tests to go green (fix product or fix the test)
+- Rely only on manual WhatsApp checks for regressions you can unit-test
+- Expand `jest.config.js` `collectCoverageFrom` exclusions to hide new code — prefer extractable, testable modules
+
+## Exceptions (ask the user first)
+
+- Pure docs / rules / comments
+- One-line config with no behavior
+- Exploratory spikes **explicitly** labeled throwaway (still add tests before merge)

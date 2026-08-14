@@ -1,7 +1,6 @@
 const { Client, LocalAuth } = require("whatsapp-web.js");
 const qrcode = require("qrcode-terminal");
 const QRCode = require("qrcode");
-const fs = require("fs");
 const path = require("path");
 const config = require("./config");
 const { createRemindersWorker } = require("./reminders/worker");
@@ -20,6 +19,10 @@ const botRuntimeState = require("./lib/botRuntimeState");
 const botMetrics = require("./lib/botMetrics");
 const botLogger = require("./lib/botLogger");
 const { createMessageIngress } = require("./lib/messageIngress");
+const {
+  resolveSessionDir,
+  handleReadyTimeout,
+} = require("./lib/waReadyWatchdog");
 
 // Log startup time
 const startupStartTime = Date.now();
@@ -48,11 +51,14 @@ if (process.env.DATABASE_URL) {
 }
 console.log("=".repeat(60) + "\n");
 
+const SESSION_CLIENT_ID = process.env.CLIENT_ID || "delivery-bot-default";
+const SESSION_DIR = resolveSessionDir(process.cwd(), SESSION_CLIENT_ID);
+
 // Create WhatsApp client with local auth (saves session)
 // Using clientId for environment isolation (prod/staging/dev)
 const client = new Client({
   authStrategy: new LocalAuth({
-    clientId: process.env.CLIENT_ID || "delivery-bot-default",
+    clientId: SESSION_CLIENT_ID,
   }),
   puppeteer: {
     headless: true,
@@ -92,22 +98,43 @@ const client = new Client({
     // Ignore default args that might cause issues
     ignoreDefaultArgs: ["--disable-extensions"],
   },
-  // Add restart on failure
   restartOnAuthFail: true,
-  // Add web version cache
+  // wwebjs 1.34.7 fixed the session-restore race (hasSynced already-true check).
+  // Use local cache to survive wppconnect HTML pruning; first run fetches live
+  // WA Web and caches it, subsequent restarts use the cached copy.
   webVersionCache: {
-    type: "remote",
-    remotePath:
-      "https://raw.githubusercontent.com/wppconnect-team/wa-version/main/html/2.2413.51-beta.html",
+    type: "local",
+    path: "./.wwebjs_cache/",
   },
 });
 
 // Show QR code in terminal when authentication needed
 let qrShown = false;
 
+function exitOnFatalWhatsApp(reason) {
+  const enabled = process.env.BOT_EXIT_ON_FATAL_DISCONNECT;
+  // default ON unless explicitly "false" / "0"
+  if (enabled === "false" || enabled === "0") {
+    console.log(
+      `[waReconnect] BOT_EXIT_ON_FATAL_DISCONNECT disabled — staying up after fatal (${reason})`
+    );
+    return;
+  }
+  const delayMs = Number(process.env.BOT_EXIT_ON_FATAL_DELAY_MS) || 8000;
+  console.log(
+    `[waReconnect] Fatal WhatsApp (${reason}) — exiting in ${Math.round(delayMs / 1000)}s so PM2 can restart`
+  );
+  setTimeout(() => {
+    process.exit(1);
+  }, delayMs).unref();
+}
+
 const waReconnect = createReconnectScheduler({
   client,
   isShuttingDown,
+  onFatal: (reason) => {
+    exitOnFatalWhatsApp(reason);
+  },
   onScheduled: (reason, attempt, delayMs) => {
     botMetrics.increment("waReconnects");
     botLogger.wa.info(
@@ -335,7 +362,8 @@ client.on("ready", async () => {
   await finalizeBotReady("ready");
 });
 
-// Sometimes ready event doesn't fire — promote CONNECTED + chat sync to ready
+// Authenticated = session cookies accepted. Does NOT mean Store is injected or
+// events are flowing — only the real `ready` event guarantees that.
 client.on("authenticated", async () => {
   console.log("\n" + "=".repeat(60));
   console.log("✅ AUTHENTICATED SUCCESSFULLY!");
@@ -343,29 +371,43 @@ client.on("authenticated", async () => {
   console.log("💡 You won't need to scan QR code again next time.");
   console.log("=".repeat(60) + "\n");
 
+  // If ready hasn't fired after BOT_READY_TIMEOUT_MS, the session restore is
+  // stuck (known WA Web bug: restored sessions sometimes stall Store injection).
+  // Clear the broken session and exit so PM2/nodemon restarts to a fresh QR.
+  const READY_TIMEOUT_MS = Number(process.env.BOT_READY_TIMEOUT_MS) || 60000;
   setTimeout(async () => {
+    let state = "unknown";
     try {
-      if (botRuntimeState.isClientReady()) {
-        return;
-      }
-
-      const state = await client.getState();
-      console.log(
-        `\n🔍 DIAGNOSTIC: Checking client state after authentication...`
-      );
-      console.log(`   State: ${state}`);
-
-      if (state === "CONNECTED") {
-        await finalizeBotReady("authenticated-fallback");
-      } else {
-        console.log(`\n⚠️  Client state: ${state}`);
-        console.log("💡 Waiting for ready event or CONNECTED state...\n");
-      }
-    } catch (error) {
-      console.error("⚠️  Error checking client state:", error.message);
-      console.error("   Stack:", error.stack);
+      state = await client.getState();
+    } catch {
+      /* ignore */
     }
-  }, 3000);
+
+    const result = handleReadyTimeout({
+      isClientReady: botRuntimeState.isClientReady(),
+      isShuttingDown: isShuttingDown(),
+      sessionDir: SESSION_DIR,
+      state,
+      timeoutMs: READY_TIMEOUT_MS,
+      onStuck: ({ state: st, timeoutMs }) => {
+        console.error(
+          `\n❌ [watchdog] 'ready' did not fire within ${timeoutMs / 1000}s (state=${st}).` +
+            `\n   Session restore failed — clearing session and exiting for fresh QR scan.`
+        );
+        botAlerts.notifySessionRestoreStuck();
+      },
+    });
+
+    if (result.action === "restart") {
+      if (result.cleared) {
+        console.log(`[watchdog] Cleared session: ${SESSION_DIR}`);
+      } else if (result.error) {
+        console.warn(`[watchdog] Could not clear session: ${result.error.message}`);
+      }
+      // Exit 0 = intentional restart (nodemon/PM2 both restart on clean exit).
+      process.exit(0);
+    }
+  }, READY_TIMEOUT_MS);
 });
 
 // When authentication fails
@@ -375,6 +417,7 @@ client.on("auth_failure", (msg) => {
   console.error("❌ AUTHENTICATION FAILED!");
   console.error("Error:", msg);
   console.error("=".repeat(60) + "\n");
+  exitOnFatalWhatsApp("AUTH_FAILURE");
 });
 
 // When client is disconnected

@@ -1,176 +1,141 @@
-# LivSight — Bot & API
+# LivSight WhatsApp bot (`wwebjs-bot`)
 
-Node.js backend for the LivSight delivery management platform. Includes a WhatsApp bot (whatsapp-web.js) and a REST API (Express 5).
+WhatsApp bot (whatsapp-web.js) for LivSight. **Recommended mode:** `USE_CORE_API=true` — orders go to **backend_core** on a separate VPS (no local `deliveries` DB required).
 
-This backend is used by:
-- The **web dashboard** in `../client` (cookie-based auth)
-- A **vendor mobile app** via `/api/v1/vendor/*` routes (Bearer token auth fallback is supported when enabled)
+Optional: legacy Express API (`src/api/server.js`) for older dashboards / bot-VPS stacks.
+
+Staff guide (formats, `#link`): [docs/HOW_THE_BOT_WORKS.md](docs/HOW_THE_BOT_WORKS.md).
 
 ---
 
-## Architecture
+## Modes
+
+| Mode | When | Data |
+|------|------|------|
+| **Core** (`USE_CORE_API=true`) | Staging / prod bot VPS | HTTPS to `CORE_API_BASE_URL`; `SKIP_MIGRATIONS=true` |
+| **Legacy** (`USE_CORE_API=false`) | Local legacy / old API | `DATABASE_URL` + migrations; Express `/api/v1/*` |
+
+---
+
+## Quickstart (core — local)
+
+```bash
+cp .envexample .env
+# Set at least:
+#   USE_CORE_API=true
+#   SKIP_MIGRATIONS=true
+#   CORE_API_BASE_URL=...
+#   CORE_BOT_USERNAME / CORE_BOT_PASSWORD
+#   CLIENT_ID=livsight-bot-local   # unique per machine / env
+
+npm install
+npm run dev    # bot: src/index.js (nodemon)
+npm test       # Jest
+```
+
+| Script | Purpose |
+|--------|---------|
+| `npm run dev` | Bot only (`src/index.js`) |
+| `npm run api:dev` | Legacy Express API only |
+| `npm run migrate` | Legacy DB migrations (skip in core mode) |
+| `npm run seed:local-tx` | Create 5 **stock** + 5 **pickup** txs for today — see [local-dev/](local-dev/) |
+| `npm start` | Production bot entry |
+
+---
+
+## Layout
 
 ```
 src/
-├── index.js          # Bot entry point (WhatsApp client)
-├── parser.js         # Parses WhatsApp messages → delivery objects
-├── statusParser.js   # Detects status keywords (livré, échec, absent…)
-├── daily-report.js   # Daily report generation
-├── config.js         # Centralized config
-├── db/               # Database abstraction (auto-selects SQLite or PostgreSQL)
-├── api/              # REST API (server.js + routes/ + middleware/)
-├── utils/            # JWT, password, group helpers
-└── scripts/          # Admin one-off scripts (seed, reset password, etc.)
-db/
-├── migrate.js        # Migration runner
-└── migrations/       # SQL files, executed alphabetically
+├── index.js                 # WhatsApp client, ingress dedupe, health
+├── handlers/                # message / delivery / staff (#ping, #status)
+├── services/coreApiClient.js
+├── lib/                     # catalog match, scheduled date, ingress, alerts…
+├── parser.js / statusParser.js
+└── api/                     # Legacy Express (optional)
+docs/
+├── HOW_THE_BOT_WORKS.md
+├── DEPLOY_STAGING.md
+└── OPS_RUNBOOK.md
 ```
 
-Two PM2 processes in production:
-- `whatsapp-bot` → `src/index.js`
-- `api-server` → `src/api/server.js`
+PM2 (core staging/prod): **`whatsapp-bot-core`** via `ecosystem.bot-core.config.js`  
+(Legacy: separate `whatsapp-bot` + `api-server` — avoid running both against the same phone.)
 
 ---
 
-## Local Development
+## Core API flow
 
-### Prerequisites
-- Node.js 18+
-- A WhatsApp account (for bot)
+1. `POST {CORE_API_BASE_URL}/auth/login` — bot JWT  
+2. `GET /api/users/whatsapp/{groupId}` — resolve linked client  
+3. `GET /api/packages` + catalog match → `POST /api/transactions` (`X-User-Id`, `scheduled_delivery_date`, optional multi-SKU `items[]`)
 
-### Setup
+Key files: `src/services/coreApiClient.js`, `src/lib/packageCatalogMatch.js`, `src/lib/scheduledDeliveryDate.js`, `src/handlers/deliveryHandler.js`.
 
-```bash
-# SQLite (simplest, no DB setup needed)
-cp env.local.sqlite.example .env
+---
 
-# Or PostgreSQL
-cp env.local.postgres.example .env
-# Edit .env with your DATABASE_URL
-```
+## Env (core essentials)
 
-```bash
-npm install
-npm run migrate    # Create tables
-npm run dev        # Bot + API with auto-reload
-npm run api:dev    # API only (no WhatsApp)
-```
-
-### Run modes (which command to use?)
-
-- `npm run dev`: runs the **bot entrypoint** (`src/index.js`) under nodemon. The bot process also boots the API in the same runtime.
-- `npm run api:dev`: runs the **API only** (`src/api/server.js`) under nodemon (best for dashboard work when you don’t need WhatsApp).
-
-### Key env vars
+Copy [.envexample](.envexample). Important variables:
 
 | Variable | Purpose |
 |----------|---------|
-| `DATABASE_URL` | PostgreSQL connection string (omit for SQLite) |
-| `JWT_SECRET` | Token signing secret |
-| `API_PORT` | Server port (default: 3000) |
-| `ALLOWED_ORIGINS` | Comma-separated CORS origins |
-| `CLIENT_ID` | WhatsApp LocalAuth session ID |
-| `REPORT_ENABLED` / `REPORT_TIME` | Daily report config |
-| `FORMAT_REMINDER_ENABLED` | Set to `true` to reply in-thread when a message looks like a delivery (phone + amount + known quartier signals) but strict format fails |
-| `FORMAT_REMINDER_COOLDOWN_MS` | Min delay between reminders per sender in a group (default: `90000`) |
-| `AUTH_HEADER_FALLBACK` | When `true`, allows `Authorization: Bearer <token>` auth (needed for mobile vendor clients that can’t use HTTP-only cookies) |
-
-Security notes:
-- Do **not** commit `.env` files. Use the `env.*.example` templates instead.
-- Rotate any secrets if they were ever committed to git history.
+| `USE_CORE_API` | `true` for backend_core |
+| `SKIP_MIGRATIONS` | `true` on core bot host |
+| `CORE_API_BASE_URL` | Gateway (auth + API) |
+| `CORE_BOT_USERNAME` / `CORE_BOT_PASSWORD` | Bot service account |
+| `CLIENT_ID` | Session folder isolation (never share across envs) |
+| `GROUP_ID` | Optional: only process one group |
+| `SCHEDULED_DELIVERY_CUTOFF_HOUR` | Default `18` (Africa/Douala) → next-day date after cutoff |
+| `BOT_HEALTH_PORT` / `BOT_HEALTH_BIND` | Default `3099` / `127.0.0.1` |
+| `BOT_ALERT_WEBHOOK_URL` | Discord ops alerts |
+| `AI_DELIVERY_FALLBACK_ENABLED` / `OPENAI_API_KEY` | Messy-line parse fallback |
+| `PUPPETEER_EXECUTABLE_PATH` | System Chrome on VPS if bundled Chromium missing |
 
 ---
 
-## WhatsApp Message Format
+## Staff / ops commands
 
-```
-612345678
-2 robes + 1 sac
-15k
-Bonapriso
-```
+| Where | Command | Effect |
+|-------|---------|--------|
+| **DM** to bot | `#ping` | Liveness |
+| **DM** to bot | `#status` | WhatsApp + Core API + circuit / metrics |
+| **Group** | `#link` | Reply with WhatsApp group id (paste on client profile in dashboard) |
 
-- **Line 1**: Phone number (must start with 6, 9 digits)
-- **Line 2**: Items description
-- **Line 3**: Amount (`15k` = 15 000 FCFA, or `15000`)
-- **Line 4**: Quartier (neighbourhood)
-
-Optionally add a carrier on line 5: `Men Travel`, `General Voyage`, etc.
-
-**Status updates** — reply to a bot message with a keyword:
-- `livré` → delivered
-- `échec` / `annulé` → failed
-- `absent` → client absent
-- `pickup` → pickup
-- `expédition` → expedition
+Order message formats: [docs/HOW_THE_BOT_WORKS.md](docs/HOW_THE_BOT_WORKS.md) §5.
 
 ---
 
-## API Endpoints
+## Staging deploy
 
-Base path: `/api/v1/`
+See [docs/DEPLOY_STAGING.md](docs/DEPLOY_STAGING.md).
 
-For the full contract and examples, see `../API.md`.
+- Path: `/opt/livsight-whatsapp-core`
+- Process: `whatsapp-bot-core` (run/manage as **deploy** user — one instance only)
+- CD: push to `main` → CI `deploy-bot`; or manual **CD Bot Core** workflow
 
-| Method | Path | Description |
-|--------|------|-------------|
-| POST | `/auth/login` | Login |
-| POST | `/auth/logout` | Logout |
-| GET | `/auth/me` | Current user |
-| GET | `/deliveries` | List deliveries (paginated, filtered) |
-| POST | `/deliveries` | Create delivery |
-| PUT | `/deliveries/:id` | Update delivery |
-| GET | `/groups` | List WhatsApp groups |
-| GET | `/tariffs` | List tariffs |
-| GET | `/stats/daily` | Daily stats |
-| GET | `/search` | Search deliveries |
-| GET | `/agencies` | List agencies (super admin) |
-| POST | `/agencies` | Create agency (super admin) |
+**DevOps** (crons, watchdog, file index): [devops/](devops/)  
+**Local fixtures** (seed txs, catalog, WhatsApp test messages): [local-dev/](local-dev/)  
+Ops alerts: [docs/OPS_RUNBOOK.md](docs/OPS_RUNBOOK.md) · QR: [docs/QR_RECOVERY.md](docs/QR_RECOVERY.md).
 
 ---
 
-## Database
+## Legacy API (optional)
 
-Auto-selected based on environment:
-- `DATABASE_URL` set → PostgreSQL
-- Otherwise → SQLite (`data/bot.db`)
+`src/api/server.js` — `/api/v1/*` (auth, agencies, groups, deliveries). Needs `DATABASE_URL` and migrations.
+
+Contract: [../API.md](../API.md). Local Postgres example: `env.local.postgres.example`.
 
 ```bash
-npm run migrate    # Run pending migrations
-npm run test:db    # Test DB connection
+npm run api:dev
+npm run migrate
 ```
-
-Migrations live in `db/migrations/`, named `YYYYMMDDHHMMSS_description.sql`, executed alphabetically.
 
 ---
 
-## Scripts
+## Tests
 
 ```bash
-# Seed test deliveries (dev helper)
-npm run seed
-
-# Create super admin account
-node src/scripts/seed-super-admin.js
-
-# Reset a password
-node src/scripts/reset-password.js
-
-# Test DB connection
-npm run test:db
-```
-
-Other useful scripts live in `src/scripts/` (examples: vendor creation, migration checks, prod migration helpers).
-
----
-
-## Production
-
-Deployed on VPS via GitHub Actions CD pipeline. See:
-- `../PRODUCTION_DEPLOYMENT_CHECKLIST.md`
-- `../Production Deployment guide.md`
-- `../PRODUCTION_TROUBLESHOOTING.md`
-
-```bash
-npm start    # node src/index.js
+npm test                 # unit / integration Jest
+npm run test:db:integration   # Postgres smoke (CI)
 ```

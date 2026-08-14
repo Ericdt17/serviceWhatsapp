@@ -14,8 +14,11 @@ See also [DEPLOY_STAGING.md](./DEPLOY_STAGING.md) · [UPTIME_KUMA.md](./UPTIME_K
 | Discord: `Échec connexion WhatsApp — rescanner le QR` | `auth_failure` event |
 | `/health` returns `"ok": false`, `whatsappState` not `CONNECTED` | Bot not linked |
 | Deploy smoke fails after PM2 restart (not just during QR window) | Session missing or invalid |
+| Watchdog restarted PM2 but state stays `UNPAIRED` | Restart was not enough — **QR required** (see [../devops/README.md](../devops/README.md)) |
 
 **Not QR:** Discord `Session API LivSight expirée` / `Reconnexion à l'API` — that is **Core API JWT**; the bot re-logins automatically. No QR scan needed.
+
+**Often not QR:** hung / soft disconnect — health watchdog or `pm2 restart whatsapp-bot-core` alone restores `CONNECTED` without scanning.
 
 ---
 
