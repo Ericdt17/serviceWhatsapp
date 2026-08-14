@@ -7,6 +7,7 @@ const { createRemindersWorker } = require("./reminders/worker");
 const { generateDailyReport } = require("./lib/daily-report");
 const botAlerts = require("./lib/botAlerts");
 const { startBotHealthServer } = require("./lib/botHealthServer");
+const { sendDocumentToWhatsapp } = require("./lib/botOutboundDocument");
 const {
   isShuttingDown,
   registerGracefulShutdown,
@@ -237,7 +238,14 @@ async function fetchHealthStatus() {
   });
 }
 
-const healthServerHandle = startBotHealthServer({ getStatus: fetchHealthStatus });
+const healthServerHandle = startBotHealthServer({
+  getStatus: fetchHealthStatus,
+  internalToken: process.env.BOT_INTERNAL_TOKEN || null,
+  outboundEnabled: process.env.BOT_OUTBOUND_ENABLED !== "false",
+  sendDocument: async (payload) => {
+    await sendDocumentToWhatsapp(client, payload);
+  },
+});
 
 botAlerts.init({
   getQrShown: () => qrShown,
@@ -383,9 +391,25 @@ client.on("authenticated", async () => {
       /* ignore */
     }
 
+    // If the bot is already ready (ready event fired in time), nothing to do.
+    if (botRuntimeState.isClientReady() || isShuttingDown()) return;
+
+    if (state === "CONNECTED") {
+      // WA Web 2.3000+ sometimes skips the ready event but the connection and
+      // message flow are fully functional. Activate the bot via the fallback
+      // path instead of destroying a working session.
+      console.warn(
+        `\n⚠️  [watchdog] 'ready' did not fire within ${READY_TIMEOUT_MS / 1000}s but state=${state}.` +
+          `\n   Activating via authenticated-fallback (session is healthy).`
+      );
+      await finalizeBotReady("authenticated-fallback");
+      return;
+    }
+
+    // Truly stuck (NOT CONNECTED after timeout) — clear session so next start shows fresh QR.
     const result = handleReadyTimeout({
-      isClientReady: botRuntimeState.isClientReady(),
-      isShuttingDown: isShuttingDown(),
+      isClientReady: false,
+      isShuttingDown: false,
       sessionDir: SESSION_DIR,
       state,
       timeoutMs: READY_TIMEOUT_MS,
@@ -404,8 +428,9 @@ client.on("authenticated", async () => {
       } else if (result.error) {
         console.warn(`[watchdog] Could not clear session: ${result.error.message}`);
       }
-      // Exit 0 = intentional restart (nodemon/PM2 both restart on clean exit).
-      process.exit(0);
+      // Exit 1 = crash signal so nodemon (--exitcrash) auto-restarts in dev.
+      // PM2 restarts on any exit code, so this is safe for production too.
+      process.exit(1);
     }
   }, READY_TIMEOUT_MS);
 });

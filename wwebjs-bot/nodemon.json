@@ -13,7 +13,7 @@
     "reports",
     "src/__tests__"
   ],
-  "delay": 1500,
+  "delay": 3000,
   "env": {
     "NODE_ENV": "development"
   },
