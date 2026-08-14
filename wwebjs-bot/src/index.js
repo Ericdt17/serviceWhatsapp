@@ -1,7 +1,6 @@
 const { Client, LocalAuth } = require("whatsapp-web.js");
 const qrcode = require("qrcode-terminal");
 const QRCode = require("qrcode");
-const fs = require("fs");
 const path = require("path");
 const config = require("./config");
 const { createRemindersWorker } = require("./reminders/worker");
@@ -20,6 +19,10 @@ const botRuntimeState = require("./lib/botRuntimeState");
 const botMetrics = require("./lib/botMetrics");
 const botLogger = require("./lib/botLogger");
 const { createMessageIngress } = require("./lib/messageIngress");
+const {
+  resolveSessionDir,
+  handleReadyTimeout,
+} = require("./lib/waReadyWatchdog");
 
 // Log startup time
 const startupStartTime = Date.now();
@@ -49,18 +52,7 @@ if (process.env.DATABASE_URL) {
 console.log("=".repeat(60) + "\n");
 
 const SESSION_CLIENT_ID = process.env.CLIENT_ID || "delivery-bot-default";
-const SESSION_DIR = path.join(process.cwd(), ".wwebjs_auth", `session-${SESSION_CLIENT_ID}`);
-
-function clearSessionDir() {
-  try {
-    if (fs.existsSync(SESSION_DIR)) {
-      fs.rmSync(SESSION_DIR, { recursive: true, force: true });
-      console.log(`[watchdog] Cleared session: ${SESSION_DIR}`);
-    }
-  } catch (err) {
-    console.warn(`[watchdog] Could not clear session: ${err.message}`);
-  }
-}
+const SESSION_DIR = resolveSessionDir(process.cwd(), SESSION_CLIENT_ID);
 
 // Create WhatsApp client with local auth (saves session)
 // Using clientId for environment isolation (prod/staging/dev)
@@ -384,20 +376,37 @@ client.on("authenticated", async () => {
   // Clear the broken session and exit so PM2/nodemon restarts to a fresh QR.
   const READY_TIMEOUT_MS = Number(process.env.BOT_READY_TIMEOUT_MS) || 60000;
   setTimeout(async () => {
-    if (botRuntimeState.isClientReady() || isShuttingDown()) return;
-
     let state = "unknown";
-    try { state = await client.getState(); } catch {}
+    try {
+      state = await client.getState();
+    } catch {
+      /* ignore */
+    }
 
-    console.error(
-      `\n❌ [watchdog] 'ready' did not fire within ${READY_TIMEOUT_MS / 1000}s (state=${state}).` +
-      `\n   Session restore failed — clearing session and exiting for fresh QR scan.`
-    );
-    botAlerts.notifySessionRestoreStuck();
-    clearSessionDir();
-    // Exit 0 = intentional restart (nodemon/PM2 both restart on clean exit).
-    // Exit 1 would tell nodemon "crashed — wait for file changes" and stall.
-    process.exit(0);
+    const result = handleReadyTimeout({
+      isClientReady: botRuntimeState.isClientReady(),
+      isShuttingDown: isShuttingDown(),
+      sessionDir: SESSION_DIR,
+      state,
+      timeoutMs: READY_TIMEOUT_MS,
+      onStuck: ({ state: st, timeoutMs }) => {
+        console.error(
+          `\n❌ [watchdog] 'ready' did not fire within ${timeoutMs / 1000}s (state=${st}).` +
+            `\n   Session restore failed — clearing session and exiting for fresh QR scan.`
+        );
+        botAlerts.notifySessionRestoreStuck();
+      },
+    });
+
+    if (result.action === "restart") {
+      if (result.cleared) {
+        console.log(`[watchdog] Cleared session: ${SESSION_DIR}`);
+      } else if (result.error) {
+        console.warn(`[watchdog] Could not clear session: ${result.error.message}`);
+      }
+      // Exit 0 = intentional restart (nodemon/PM2 both restart on clean exit).
+      process.exit(0);
+    }
   }, READY_TIMEOUT_MS);
 });
 

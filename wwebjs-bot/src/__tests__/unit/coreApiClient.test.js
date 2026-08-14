@@ -193,6 +193,41 @@ describe("coreApiClient auth retry", () => {
     expect(String(packagesCall[0])).toContain("userId=client-kc");
   });
 
+  it("createTransaction throws structured error on HTTP 400 packageDescription", async () => {
+    const {
+      createTransaction,
+      clearAuthCache,
+      clearCatalogCache,
+    } = require("../../services/coreApiClient");
+    clearAuthCache();
+    clearCatalogCache();
+
+    global.fetch
+      .mockResolvedValueOnce(loginResponse("token-a"))
+      .mockResolvedValueOnce(jsonResponse(200, [{ package_name: "Savon", user_id: 1 }]))
+      .mockResolvedValueOnce(
+        jsonResponse(400, { packageDescription: "size must be between 0 and 160" })
+      );
+
+    await expect(
+      createTransaction(
+        "client-kc",
+        {
+          phone: "658635603",
+          items: "savons",
+          amount_due: 10000,
+          quartier: "douala",
+        },
+        "- nom: test\n- tel: 658635603\n- savons\n- douala",
+        "true_120363@g.us_FAIL400",
+        { clientUserId: 1 }
+      )
+    ).rejects.toMatchObject({
+      status: 400,
+      message: expect.stringMatching(/400|packageDescription|size must be between/i),
+    });
+  });
+
   it("mapParsedToTransaction omits amount when amount_due is 0", () => {
     const { mapParsedToTransaction } = require("../../services/coreApiClient");
     const messageText = "690829269\n01 Savon BOASUN\n0\nCarrefour SHO";

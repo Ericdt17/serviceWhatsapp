@@ -59,4 +59,14 @@ describe("botAlertMessages", () => {
     expect(msg.waLogoutRequired("LOGOUT")).toContain("LOGOUT");
     expect(msg.waLogoutRequired("LOGOUT")).toContain("Rescanner le QR");
   });
+
+  it("qrRequired mentions QR scan", () => {
+    expect(msg.qrRequired()).toMatch(/QR/i);
+    expect(msg.qrRequired()).toMatch(/scanner/i);
+  });
+
+  it("sessionRestoreStuck mentions session and restart", () => {
+    expect(msg.sessionRestoreStuck()).toMatch(/[Ss]ession/);
+    expect(msg.sessionRestoreStuck()).toMatch(/redémarrage|QR/i);
+  });
 });

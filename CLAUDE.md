@@ -123,3 +123,9 @@ When the user asks for a commit, follow [Conventional Commits 1.0.0](https://www
 Common types: `feat`, `fix`, `docs`, `refactor`, `test`, `chore`, `perf`, `ci`, `build`.  
 Breaking: `type!:` and/or footer `BREAKING CHANGE: ...`.  
 Imperative description, no trailing period. Only commit when asked.
+
+## TDD (required)
+
+Same rule as Cursor: `.cursor/rules/tdd.mdc`.
+
+For features and bug fixes: **failing test first → minimal implementation → refactor**. Prefer unit tests under `wwebjs-bot/src/__tests__/unit/` with mocks (no live WhatsApp). Do not implement first and add tests later. Do not skip or delete failing tests to go green.
