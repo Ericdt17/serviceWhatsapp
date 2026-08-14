@@ -75,5 +75,9 @@ module.exports = {
     if (process.env.REMINDERS_ENABLED === "false") return false;
     return process.env.USE_CORE_API !== "true";
   })(),
+
+  // Internal outbound send (dashboard → backend → bot)
+  BOT_INTERNAL_TOKEN: process.env.BOT_INTERNAL_TOKEN || null,
+  BOT_OUTBOUND_ENABLED: process.env.BOT_OUTBOUND_ENABLED !== "false",
 };
 

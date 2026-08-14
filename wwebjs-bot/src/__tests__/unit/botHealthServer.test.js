@@ -32,6 +32,40 @@ describe("botHealthServer", () => {
     });
   }
 
+  function post(path, port, body, headers = {}) {
+    return new Promise((resolve, reject) => {
+      const payload = JSON.stringify(body);
+      const req = http.request(
+        {
+          hostname: "127.0.0.1",
+          port,
+          path,
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "Content-Length": Buffer.byteLength(payload),
+            ...headers,
+          },
+        },
+        (res) => {
+          let data = "";
+          res.on("data", (chunk) => {
+            data += chunk;
+          });
+          res.on("end", () => {
+            resolve({
+              status: res.statusCode,
+              body: data ? JSON.parse(data) : {},
+            });
+          });
+        }
+      );
+      req.on("error", reject);
+      req.write(payload);
+      req.end();
+    });
+  }
+
   it("returns 503 when bot is not ready", async () => {
     process.env.BOT_HEALTH_PORT = "37655";
     process.env.BOT_HEALTH_BIND = "127.0.0.1";
@@ -83,6 +117,84 @@ describe("botHealthServer", () => {
     const res = await get("/metrics", serverInfo.port);
     expect(res.status).toBe(200);
     expect(res.body.metrics.ordersOk).toBe(5);
+  });
+
+  it("POST /internal/send-document sends PDF when authorized and bot ready", async () => {
+    process.env.BOT_HEALTH_PORT = "37659";
+    process.env.BOT_HEALTH_BIND = "127.0.0.1";
+    const sendDocument = jest.fn().mockResolvedValue(undefined);
+    serverInfo = startBotHealthServer({
+      getStatus: async () => ({ ready: true, clientReady: true }),
+      internalToken: "test-secret",
+      outboundEnabled: true,
+      sendDocument,
+    });
+    await new Promise((resolve) => serverInfo.server.once("listening", resolve));
+
+    const res = await post(
+      "/internal/send-document",
+      serverInfo.port,
+      {
+        whatsapp_group_id: "120363123456789012@g.us",
+        filename: "rapport.pdf",
+        pdf_base64: Buffer.from("%PDF-1.4").toString("base64"),
+        caption: "Test",
+      },
+      { "X-Bot-Internal-Token": "test-secret" }
+    );
+
+    expect(res.status).toBe(200);
+    expect(res.body.sent).toBe(true);
+    expect(sendDocument).toHaveBeenCalledWith(
+      expect.objectContaining({
+        groupId: "120363123456789012@g.us",
+        filename: "rapport.pdf",
+      })
+    );
+  });
+
+  it("POST /internal/send-document returns 401 without token", async () => {
+    process.env.BOT_HEALTH_PORT = "37660";
+    process.env.BOT_HEALTH_BIND = "127.0.0.1";
+    serverInfo = startBotHealthServer({
+      getStatus: async () => ({ ready: true }),
+      internalToken: "test-secret",
+      sendDocument: jest.fn(),
+    });
+    await new Promise((resolve) => serverInfo.server.once("listening", resolve));
+
+    const res = await post("/internal/send-document", serverInfo.port, {
+      whatsapp_group_id: "120363123456789012@g.us",
+      filename: "rapport.pdf",
+      pdf_base64: "abc",
+    });
+
+    expect(res.status).toBe(401);
+  });
+
+  it("POST /internal/send-document returns 503 when bot not ready", async () => {
+    process.env.BOT_HEALTH_PORT = "37661";
+    process.env.BOT_HEALTH_BIND = "127.0.0.1";
+    serverInfo = startBotHealthServer({
+      getStatus: async () => ({ ready: false }),
+      internalToken: "test-secret",
+      sendDocument: jest.fn(),
+    });
+    await new Promise((resolve) => serverInfo.server.once("listening", resolve));
+
+    const res = await post(
+      "/internal/send-document",
+      serverInfo.port,
+      {
+        whatsapp_group_id: "120363123456789012@g.us",
+        filename: "rapport.pdf",
+        pdf_base64: "abc",
+      },
+      { "X-Bot-Internal-Token": "test-secret" }
+    );
+
+    expect(res.status).toBe(503);
+    expect(res.body.error).toBe("bot_not_ready");
   });
 
   it("returns 503 when WhatsApp is up but Core API auth failed", async () => {

@@ -4,7 +4,7 @@
   "main": "index.js",
   "scripts": {
     "start": "node src/index.js",
-    "dev": "nodemon --config nodemon.json src/index.js",
+    "dev": "nodemon --exitcrash --config nodemon.json src/index.js",
     "api": "node src/api/server.js",
     "api:dev": "nodemon --config nodemon.json src/api/server.js",
     "seed": "node src/scripts/seed-deliveries.js",

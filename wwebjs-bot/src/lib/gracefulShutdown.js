@@ -42,6 +42,17 @@ function registerGracefulShutdown(options) {
 
     await destroyWithTimeout();
 
+    // Force-kill the Chrome subprocess so it doesn't outlive this process as a
+    // zombie (common on macOS when the parent exits before the child closes).
+    try {
+      const browserProc = client.pupBrowser?.process?.();
+      if (browserProc && !browserProc.killed) {
+        browserProc.kill("SIGKILL");
+      }
+    } catch {
+      /* ignore — browser may already be gone */
+    }
+
     if (healthServer) {
       await new Promise((resolve) => {
         healthServer.close((err) => {
