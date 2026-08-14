@@ -321,6 +321,26 @@ async function finalizeBotReady(source) {
   }
 
   botRuntimeState.setClientReady(true);
+
+  if (source === "authenticated-fallback") {
+    // LoadUtils injection failed mid-auth (WA page navigated, flushing the
+    // injected context). The page has now stabilized — re-inject and wire up
+    // the WA→Node event bridge so messages actually flow.
+    try {
+      const { LoadUtils } = require("whatsapp-web.js/src/util/Injected/Utils");
+      await client.pupPage.evaluate(LoadUtils);
+      console.log("[fallback] LoadUtils re-injected");
+    } catch (err) {
+      console.warn("[fallback] LoadUtils re-inject failed:", err.message);
+    }
+    try {
+      await client.attachEventListeners();
+      console.log("[fallback] WA event bridge attached — messages will flow");
+    } catch (err) {
+      console.warn("[fallback] attachEventListeners failed:", err.message);
+    }
+  }
+
   waReconnect.reset();
   botAlerts.notifyReady();
 
