@@ -13,6 +13,8 @@ Folder for **bot VPS** operations: health watchdog, crontab examples, and an ind
 
 Compatibility: `scripts/watchdog-bot-health.sh` is a thin wrapper that calls this folder (old crontab paths still work).
 
+Local dashboard/WhatsApp fixtures (not VPS): [../local-dev/](../local-dev/).
+
 ---
 
 ## Related files (elsewhere in repo)

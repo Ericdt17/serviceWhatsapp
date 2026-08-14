@@ -8,6 +8,7 @@
     "api": "node src/api/server.js",
     "api:dev": "nodemon --config nodemon.json src/api/server.js",
     "seed": "node src/scripts/seed-deliveries.js",
+    "seed:local-tx": "node src/scripts/seed-local-transactions.js",
     "view": "node src/scripts/view-deliveries.js",
     "view:all": "node src/scripts/view-all-deliveries.js",
     "report": "node src/lib/daily-report.js",
@@ -57,7 +58,7 @@
     "pino-http": "^11.0.0",
     "qrcode": "^1.5.4",
     "qrcode-terminal": "^0.12.0",
-    "whatsapp-web.js": "github:pedroslopez/whatsapp-web.js#b0e869317f301f3bd20dea20cdcbb08e452d8f36",
+    "whatsapp-web.js": "github:pedroslopez/whatsapp-web.js",
     "xlsx": "^0.18.5",
     "zod": "^4.3.6"
   },

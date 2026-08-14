@@ -68,6 +68,7 @@ Full template: [wwebjs-bot/.envexample](wwebjs-bot/.envexample).
 | Doc | Audience |
 |-----|----------|
 | [wwebjs-bot/devops/](wwebjs-bot/devops/) | **DevOps folder** — watchdog, crontab example, file index |
+| [wwebjs-bot/local-dev/](wwebjs-bot/local-dev/) | **Local fixtures** — seed txs, catalog dump, WhatsApp test messages |
 | [wwebjs-bot/docs/HOW_THE_BOT_WORKS.md](wwebjs-bot/docs/HOW_THE_BOT_WORKS.md) | Staff — formats, `#link`, onboarding |
 | [wwebjs-bot/docs/DEPLOY_STAGING.md](wwebjs-bot/docs/DEPLOY_STAGING.md) | Staging bot VPS deploy |
 | [wwebjs-bot/docs/OPS_RUNBOOK.md](wwebjs-bot/docs/OPS_RUNBOOK.md) | Ops — health, alerts, reconnect |

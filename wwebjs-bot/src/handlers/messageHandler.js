@@ -53,20 +53,47 @@ async function resolveChatContext(msg) {
   }
 }
 
+function isLikelyGroupMessage(msg, chat, chatId) {
+  if (chat?.isGroup === true) return true;
+  const ids = [chatId, msg.from, msg.to, msg.id?.remote]
+    .filter(Boolean)
+    .map(String);
+  if (ids.some((id) => id.includes("@g.us"))) return true;
+  // Group messages include the participant; DMs typically do not
+  if (msg.author) return true;
+  return false;
+}
+
+function resolveWhatsappGroupId(msg, chat, chatId) {
+  const candidates = [
+    chat?.id?._serialized,
+    chatId,
+    msg.id?.remote,
+    msg.from,
+  ]
+    .filter(Boolean)
+    .map(String);
+  return candidates.find((id) => id.endsWith("@g.us")) || candidates[0] || "";
+}
+
 async function onMessage(msg, client) {
   try {
-    console.log("🔔 MESSAGE EVENT FIRED - Bot received a message!");
+    const messageText = msg.body || "";
+    const preview = messageText.substring(0, 80).replace(/\n/g, " ");
+    console.log(
+      `🔔 MESSAGE EVENT FIRED from=${msg.from || "?"} author=${msg.author || "n/a"} body="${preview}"`
+    );
 
     if (msg.fromMe) {
       console.log("   ⏭️  Skipped: Message from bot itself\n");
       return;
     }
 
-    const messageText = msg.body || "";
+    const normalizedText = messageText.trim().toLowerCase();
 
     // Staff cmds first — do not depend on getChat() (breaks with LID / Store bugs)
     const earlyChatId = msg.from || "";
-    const earlyIsGroup = String(earlyChatId).endsWith("@g.us");
+    const earlyIsGroup = isLikelyGroupMessage(msg, null, earlyChatId);
     if (
       await handleStaffCommand(msg, client, {
         chatId: earlyChatId,
@@ -79,37 +106,47 @@ async function onMessage(msg, client) {
     const { chat, chatId, isGroupChat, groupName, getChatFailed } =
       await resolveChatContext(msg);
 
+    const treatedAsGroup =
+      isGroupChat || isLikelyGroupMessage(msg, chat, chatId);
+
     botLogger.verboseConsole("\n🔍 DEBUG - Raw message received:");
     botLogger.verboseConsole(
       "   isGroup:",
       chat?.isGroup,
       "→ treated as group:",
-      isGroupChat,
+      treatedAsGroup,
       getChatFailed ? "(getChat fallback)" : ""
     );
     botLogger.verboseConsole("   groupId:", chatId || "N/A");
     botLogger.verboseConsole("   msg.from:", msg.from || "N/A");
+    botLogger.verboseConsole("   msg.author:", msg.author || "N/A");
     botLogger.verboseConsole("   targetGroupId:", config.GROUP_ID);
     botLogger.verboseConsole("   message length:", messageText.length);
     botLogger.verboseConsole("   message preview:", messageText.substring(0, 150));
 
-    if (!isGroupChat) {
+    // ── #link (group only; always logged even if getChat fails / LID) ──
+    if (normalizedText === "#link" || normalizedText === "link") {
+      console.log(
+        `   🔗 #link detected treatedAsGroup=${treatedAsGroup} from=${msg.from} chatId=${chatId}`
+      );
+      if (!treatedAsGroup) {
+        await msg.reply(
+          "Envoie #link dans le *groupe* WhatsApp du client (pas en message privé)."
+        );
+        return;
+      }
+      const whatsappGroupId = resolveWhatsappGroupId(msg, chat, chatId);
+      await sendLinkMessage(client, whatsappGroupId, groupName);
+      return;
+    }
+
+    if (!treatedAsGroup) {
       botLogger.verboseConsole("   ⏭️  Skipped: Not a group message\n");
       return;
     }
 
-    const whatsappGroupId = chatId.endsWith("@g.us")
-      ? chatId
-      : msg.from;
+    const whatsappGroupId = resolveWhatsappGroupId(msg, chat, chatId);
     const targetGroupId = config.GROUP_ID;
-
-    // ── #link command ───────────────────────────────────────────────────
-    const normalizedText = messageText.trim().toLowerCase();
-    if (normalizedText === "#link" || normalizedText === "link") {
-      console.log("   🔗 #link command detected - sending group ID");
-      await sendLinkMessage(client, whatsappGroupId, groupName);
-      return;
-    }
 
     // ── Group filter ────────────────────────────────────────────────────
     if (targetGroupId && whatsappGroupId !== targetGroupId) {
@@ -218,7 +255,7 @@ async function onMessage(msg, client) {
 
     console.log("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
     console.log("📨 Message from Target Group:");
-    console.log("   Group Name:", chat.name);
+    console.log("   Group Name:", chat?.name || groupName);
     console.log("   From:", contactName);
     console.log("   Full Message:", messageText);
     console.log("   Message Length:", messageText.length);

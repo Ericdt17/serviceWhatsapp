@@ -48,11 +48,25 @@ if (process.env.DATABASE_URL) {
 }
 console.log("=".repeat(60) + "\n");
 
+const SESSION_CLIENT_ID = process.env.CLIENT_ID || "delivery-bot-default";
+const SESSION_DIR = path.join(process.cwd(), ".wwebjs_auth", `session-${SESSION_CLIENT_ID}`);
+
+function clearSessionDir() {
+  try {
+    if (fs.existsSync(SESSION_DIR)) {
+      fs.rmSync(SESSION_DIR, { recursive: true, force: true });
+      console.log(`[watchdog] Cleared session: ${SESSION_DIR}`);
+    }
+  } catch (err) {
+    console.warn(`[watchdog] Could not clear session: ${err.message}`);
+  }
+}
+
 // Create WhatsApp client with local auth (saves session)
 // Using clientId for environment isolation (prod/staging/dev)
 const client = new Client({
   authStrategy: new LocalAuth({
-    clientId: process.env.CLIENT_ID || "delivery-bot-default",
+    clientId: SESSION_CLIENT_ID,
   }),
   puppeteer: {
     headless: true,
@@ -92,13 +106,13 @@ const client = new Client({
     // Ignore default args that might cause issues
     ignoreDefaultArgs: ["--disable-extensions"],
   },
-  // Add restart on failure
   restartOnAuthFail: true,
-  // Add web version cache
+  // wwebjs 1.34.7 fixed the session-restore race (hasSynced already-true check).
+  // Use local cache to survive wppconnect HTML pruning; first run fetches live
+  // WA Web and caches it, subsequent restarts use the cached copy.
   webVersionCache: {
-    type: "remote",
-    remotePath:
-      "https://raw.githubusercontent.com/wppconnect-team/wa-version/main/html/2.2413.51-beta.html",
+    type: "local",
+    path: "./.wwebjs_cache/",
   },
 });
 
@@ -356,7 +370,8 @@ client.on("ready", async () => {
   await finalizeBotReady("ready");
 });
 
-// Sometimes ready event doesn't fire — promote CONNECTED + chat sync to ready
+// Authenticated = session cookies accepted. Does NOT mean Store is injected or
+// events are flowing — only the real `ready` event guarantees that.
 client.on("authenticated", async () => {
   console.log("\n" + "=".repeat(60));
   console.log("✅ AUTHENTICATED SUCCESSFULLY!");
@@ -364,29 +379,26 @@ client.on("authenticated", async () => {
   console.log("💡 You won't need to scan QR code again next time.");
   console.log("=".repeat(60) + "\n");
 
+  // If ready hasn't fired after BOT_READY_TIMEOUT_MS, the session restore is
+  // stuck (known WA Web bug: restored sessions sometimes stall Store injection).
+  // Clear the broken session and exit so PM2/nodemon restarts to a fresh QR.
+  const READY_TIMEOUT_MS = Number(process.env.BOT_READY_TIMEOUT_MS) || 60000;
   setTimeout(async () => {
-    try {
-      if (botRuntimeState.isClientReady()) {
-        return;
-      }
+    if (botRuntimeState.isClientReady() || isShuttingDown()) return;
 
-      const state = await client.getState();
-      console.log(
-        `\n🔍 DIAGNOSTIC: Checking client state after authentication...`
-      );
-      console.log(`   State: ${state}`);
+    let state = "unknown";
+    try { state = await client.getState(); } catch {}
 
-      if (state === "CONNECTED") {
-        await finalizeBotReady("authenticated-fallback");
-      } else {
-        console.log(`\n⚠️  Client state: ${state}`);
-        console.log("💡 Waiting for ready event or CONNECTED state...\n");
-      }
-    } catch (error) {
-      console.error("⚠️  Error checking client state:", error.message);
-      console.error("   Stack:", error.stack);
-    }
-  }, 3000);
+    console.error(
+      `\n❌ [watchdog] 'ready' did not fire within ${READY_TIMEOUT_MS / 1000}s (state=${state}).` +
+      `\n   Session restore failed — clearing session and exiting for fresh QR scan.`
+    );
+    botAlerts.notifySessionRestoreStuck();
+    clearSessionDir();
+    // Exit 0 = intentional restart (nodemon/PM2 both restart on clean exit).
+    // Exit 1 would tell nodemon "crashed — wait for file changes" and stall.
+    process.exit(0);
+  }, READY_TIMEOUT_MS);
 });
 
 // When authentication fails

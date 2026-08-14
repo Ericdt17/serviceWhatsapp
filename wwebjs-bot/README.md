@@ -38,6 +38,7 @@ npm test       # Jest
 | `npm run dev` | Bot only (`src/index.js`) |
 | `npm run api:dev` | Legacy Express API only |
 | `npm run migrate` | Legacy DB migrations (skip in core mode) |
+| `npm run seed:local-tx` | Create 5 **stock** + 5 **pickup** txs for today — see [local-dev/](local-dev/) |
 | `npm start` | Production bot entry |
 
 ---
@@ -114,6 +115,7 @@ See [docs/DEPLOY_STAGING.md](docs/DEPLOY_STAGING.md).
 - CD: push to `main` → CI `deploy-bot`; or manual **CD Bot Core** workflow
 
 **DevOps** (crons, watchdog, file index): [devops/](devops/)  
+**Local fixtures** (seed txs, catalog, WhatsApp test messages): [local-dev/](local-dev/)  
 Ops alerts: [docs/OPS_RUNBOOK.md](docs/OPS_RUNBOOK.md) · QR: [docs/QR_RECOVERY.md](docs/QR_RECOVERY.md).
 
 ---

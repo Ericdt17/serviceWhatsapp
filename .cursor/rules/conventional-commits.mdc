@@ -1,0 +1,59 @@
+---
+description: Conventional Commits 1.0.0 for all git commit messages
+alwaysApply: true
+---
+
+# Conventional Commits
+
+When creating git commits (only when the user asks), follow [Conventional Commits 1.0.0](https://www.conventionalcommits.org/en/v1.0.0/).
+
+## Format
+
+```
+<type>[optional scope]: <description>
+
+[optional body]
+
+[optional footer(s)]
+```
+
+- Type + optional scope + optional `!` + `: ` + short description (imperative, lowercase start, no trailing period)
+- Body optional; blank line after description
+- Footers optional; blank line after body
+- Breaking change: `!` after type/scope, and/or footer `BREAKING CHANGE: ...`
+
+## Types (use these)
+
+| Type | When |
+|------|------|
+| `feat` | New user-facing capability |
+| `fix` | Bug fix |
+| `docs` | Docs only |
+| `refactor` | Code change, no behavior change |
+| `test` | Tests only |
+| `chore` | Tooling, deps, misc maintenance |
+| `perf` | Performance improvement |
+| `ci` | CI config |
+| `build` | Build system / packaging |
+
+Scope optional, e.g. `fix(parser):`, `feat(core-api):`.
+
+## Examples
+
+```
+fix(message-handler): avoid crash when getChat returns null
+
+feat(core-api): truncate package description to Core @Size limits
+
+docs: document AI fallback hard-message fixtures
+
+fix!: require webVersion pin for WhatsApp Store injection
+
+BREAKING CHANGE: unpinned WA Web HTML is no longer supported locally.
+```
+
+## Do not
+
+- Vague subjects: `update`, `fix stuff`, `wip`
+- Past tense: `fixed` → use `fix: ...`
+- Bundle unrelated changes; prefer focused commits when the user asks to split

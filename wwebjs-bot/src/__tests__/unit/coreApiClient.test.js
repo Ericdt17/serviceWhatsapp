@@ -209,10 +209,11 @@ describe("coreApiClient auth retry", () => {
     expect(fields.cash_collect).toBe("false");
     expect(fields.amount).toBeUndefined();
     expect(fields.package_name).toBe("01 Savon BOASUN");
-    expect(fields.description).toBe(messageText);
+    expect(fields.description).toBe("01 Savon BOASUN");
+    expect(fields.raw_input).toBe(messageText);
   });
 
-  it("mapParsedToTransaction uses message text as description (not duplicate package_name)", () => {
+  it("mapParsedToTransaction uses package_name as description; full text in raw_input", () => {
     const { mapParsedToTransaction } = require("../../services/coreApiClient");
     const messageText = "699000001\n2 robes\n12000\nAkwa";
     const fields = mapParsedToTransaction(
@@ -226,8 +227,29 @@ describe("coreApiClient auth retry", () => {
       { source: "pickup", package_name: "robes", quantity: 2 }
     );
     expect(fields.package_name).toBe("robes");
-    expect(fields.description).toBe(messageText);
+    expect(fields.description).toBe("robes");
+    expect(fields.raw_input).toBe(messageText);
     expect(fields.quantity).toBe(2);
+  });
+
+  it("mapParsedToTransaction keeps long WhatsApp body only in raw_input", () => {
+    const { mapParsedToTransaction } = require("../../services/coreApiClient");
+    const messageText = `690000000\n${"x".repeat(200)}\n1000\nAkwa`;
+    const fields = mapParsedToTransaction(
+      {
+        phone: "690000000",
+        items: "x".repeat(80),
+        amount_due: 1000,
+        quartier: "Akwa",
+      },
+      messageText,
+      { source: "pickup", package_name: "x".repeat(80), quantity: 1 }
+    );
+    expect(fields.package_name.length).toBe(50);
+    expect(fields.description).toBe(fields.package_name);
+    expect(fields.description.length).toBeLessThanOrEqual(160);
+    expect(fields.raw_input).toBe(messageText);
+    expect(fields.raw_input.length).toBeGreaterThan(160);
   });
 
   it("mapParsedToTransaction emits items[i] fields for multi-product stock match", () => {

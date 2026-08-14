@@ -72,9 +72,19 @@ function heartbeat() {
   return withPrefix("Bot OK — WhatsApp et API connectés.");
 }
 
+function qrRequired() {
+  return withPrefix("📱 QR WhatsApp disponible — scanner maintenant sur le VPS.");
+}
+
 function qrStale(minutes) {
   return withPrefix(
     `QR non scanné depuis ${minutes} min — scanner le code sur le VPS.`
+  );
+}
+
+function sessionRestoreStuck() {
+  return withPrefix(
+    "Session WhatsApp invalide — redémarrage en cours. QR à scanner sur le VPS."
   );
 }
 
@@ -116,9 +126,11 @@ module.exports = {
   groupNotLinked,
   groupLookupFailed,
   heartbeat,
+  qrRequired,
   qrStale,
   waAuthFailure,
   waLogoutRequired,
   waNotConnected,
+  sessionRestoreStuck,
   genericError,
 };
