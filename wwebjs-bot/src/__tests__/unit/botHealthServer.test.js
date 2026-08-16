@@ -217,4 +217,160 @@ describe("botHealthServer", () => {
     expect(res.body.coreApiOk).toBe(false);
     expect(res.body.coreApiError).toMatch(/401/);
   });
+
+  it("POST /internal/send-text sends message when authorized and bot ready", async () => {
+    process.env.BOT_HEALTH_PORT = "37662";
+    process.env.BOT_HEALTH_BIND = "127.0.0.1";
+    const sendText = jest.fn().mockResolvedValue("true_120363@g.us_ABC");
+    serverInfo = startBotHealthServer({
+      getStatus: async () => ({ ready: true, clientReady: true }),
+      internalToken: "test-secret",
+      outboundEnabled: true,
+      sendText,
+    });
+    await new Promise((resolve) => serverInfo.server.once("listening", resolve));
+
+    const res = await post(
+      "/internal/send-text",
+      serverInfo.port,
+      {
+        whatsapp_group_id: "120363123456789012@g.us",
+        message: "Annonce LivSight",
+      },
+      { "X-Bot-Internal-Token": "test-secret" }
+    );
+
+    expect(res.status).toBe(200);
+    expect(res.body.success).toBe(true);
+    expect(res.body.sent).toBe(true);
+    expect(res.body.whatsapp_group_id).toBe("120363123456789012@g.us");
+    expect(res.body.message_id).toBe("true_120363@g.us_ABC");
+    expect(sendText).toHaveBeenCalledWith(
+      expect.objectContaining({
+        groupId: "120363123456789012@g.us",
+        message: "Annonce LivSight",
+      })
+    );
+  });
+
+  it("POST /internal/send-text returns 401 without token", async () => {
+    process.env.BOT_HEALTH_PORT = "37663";
+    process.env.BOT_HEALTH_BIND = "127.0.0.1";
+    serverInfo = startBotHealthServer({
+      getStatus: async () => ({ ready: true }),
+      internalToken: "test-secret",
+      sendText: jest.fn(),
+    });
+    await new Promise((resolve) => serverInfo.server.once("listening", resolve));
+
+    const res = await post("/internal/send-text", serverInfo.port, {
+      whatsapp_group_id: "120363123456789012@g.us",
+      message: "Hello",
+    });
+
+    expect(res.status).toBe(401);
+  });
+
+  it("POST /internal/send-text returns 400 for empty message", async () => {
+    process.env.BOT_HEALTH_PORT = "37664";
+    process.env.BOT_HEALTH_BIND = "127.0.0.1";
+    serverInfo = startBotHealthServer({
+      getStatus: async () => ({ ready: true }),
+      internalToken: "test-secret",
+      sendText: jest.fn(),
+    });
+    await new Promise((resolve) => serverInfo.server.once("listening", resolve));
+
+    const res = await post(
+      "/internal/send-text",
+      serverInfo.port,
+      {
+        whatsapp_group_id: "120363123456789012@g.us",
+        message: "   ",
+      },
+      { "X-Bot-Internal-Token": "test-secret" }
+    );
+
+    expect(res.status).toBe(400);
+    expect(res.body.error).toBe("validation_error");
+  });
+
+  it("POST /internal/send-text returns 503 when bot not ready", async () => {
+    process.env.BOT_HEALTH_PORT = "37665";
+    process.env.BOT_HEALTH_BIND = "127.0.0.1";
+    serverInfo = startBotHealthServer({
+      getStatus: async () => ({ ready: false }),
+      internalToken: "test-secret",
+      sendText: jest.fn(),
+    });
+    await new Promise((resolve) => serverInfo.server.once("listening", resolve));
+
+    const res = await post(
+      "/internal/send-text",
+      serverInfo.port,
+      {
+        whatsapp_group_id: "120363123456789012@g.us",
+        message: "Hello",
+      },
+      { "X-Bot-Internal-Token": "test-secret" }
+    );
+
+    expect(res.status).toBe(503);
+    expect(res.body.error).toBe("bot_not_ready");
+    expect(res.body.message).toBe("WhatsApp client is not ready");
+  });
+
+  it("POST /internal/send-text returns 502 when send fails", async () => {
+    process.env.BOT_HEALTH_PORT = "37666";
+    process.env.BOT_HEALTH_BIND = "127.0.0.1";
+    const sendText = jest.fn().mockRejectedValue(new Error("group not found"));
+    serverInfo = startBotHealthServer({
+      getStatus: async () => ({ ready: true }),
+      internalToken: "test-secret",
+      sendText,
+    });
+    await new Promise((resolve) => serverInfo.server.once("listening", resolve));
+
+    const res = await post(
+      "/internal/send-text",
+      serverInfo.port,
+      {
+        whatsapp_group_id: "120363123456789012@g.us",
+        message: "Hello",
+      },
+      { "X-Bot-Internal-Token": "test-secret" }
+    );
+
+    expect(res.status).toBe(502);
+    expect(res.body.error).toBe("send_failed");
+    expect(res.body.message).toMatch(/group not found/);
+  });
+
+  it("POST /internal/send-text dry_run skips sendText", async () => {
+    process.env.BOT_HEALTH_PORT = "37667";
+    process.env.BOT_HEALTH_BIND = "127.0.0.1";
+    const sendText = jest.fn();
+    serverInfo = startBotHealthServer({
+      getStatus: async () => ({ ready: true }),
+      internalToken: "test-secret",
+      sendText,
+    });
+    await new Promise((resolve) => serverInfo.server.once("listening", resolve));
+
+    const res = await post(
+      "/internal/send-text",
+      serverInfo.port,
+      {
+        whatsapp_group_id: "120363123456789012@g.us",
+        message: "Preview only",
+        dry_run: true,
+      },
+      { "X-Bot-Internal-Token": "test-secret" }
+    );
+
+    expect(res.status).toBe(200);
+    expect(res.body.sent).toBe(true);
+    expect(res.body.message_id).toBeNull();
+    expect(sendText).not.toHaveBeenCalled();
+  });
 });

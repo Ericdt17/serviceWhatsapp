@@ -76,6 +76,52 @@ Log rotation: install [scripts/logrotate-bot.conf](../scripts/logrotate-bot.conf
 
 ---
 
+## Outbound WhatsApp (backend → bot)
+
+Internal HTTP on the health server (`BOT_HEALTH_PORT`, default `3099`). Auth: header `X-Bot-Internal-Token` must match `BOT_INTERNAL_TOKEN`. Set `BOT_OUTBOUND_ENABLED=false` to disable.
+
+| Endpoint | Purpose |
+|----------|---------|
+| `POST /internal/send-document` | PDF relevé (existing) |
+| `POST /internal/send-text` | Plain text to **one** group (broadcast orchestration is on Spring) |
+
+**Send text — success**
+
+```bash
+curl -sS -X POST "http://127.0.0.1:3099/internal/send-text" \
+  -H "Content-Type: application/json" \
+  -H "X-Bot-Internal-Token: $BOT_INTERNAL_TOKEN" \
+  -d '{
+    "whatsapp_group_id": "120363424985037911@g.us",
+    "message": "Test LivSight — message texte OK"
+  }'
+```
+
+Expect `200`: `{ "success": true, "sent": true, "whatsapp_group_id": "…@g.us", "message_id": "…" }`.
+
+Optional: `"dry_run": true` validates only (no WhatsApp send); `message_id` is `null`.
+
+**Body rules:** `whatsapp_group_id` must end with `@g.us`; `message` required, max **4000** characters.
+
+**Errors (same style as send-document)**
+
+| Status | When |
+|--------|------|
+| 401 | Missing/invalid `X-Bot-Internal-Token` |
+| 400 | Validation (`validation_error`) |
+| 503 | Bot not ready — `"WhatsApp client is not ready"` |
+| 502 | WhatsApp send failed (`send_failed`) |
+
+```bash
+# Empty message → 400
+curl -sS -X POST "http://127.0.0.1:3099/internal/send-text" \
+  -H "Content-Type: application/json" \
+  -H "X-Bot-Internal-Token: $BOT_INTERNAL_TOKEN" \
+  -d '{"whatsapp_group_id":"120363424985037911@g.us","message":"   "}'
+```
+
+---
+
 ## Staff commands (DM only)
 
 | Command | Reply |

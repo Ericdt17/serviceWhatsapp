@@ -2,8 +2,11 @@
 
 const {
   validateSendDocumentBody,
+  validateSendTextBody,
   verifyInternalToken,
   sendDocumentToWhatsapp,
+  sendTextToWhatsapp,
+  MAX_TEXT_MESSAGE_LENGTH,
 } = require("../../lib/botOutboundDocument");
 
 describe("botOutboundDocument", () => {
@@ -104,6 +107,87 @@ describe("botOutboundDocument", () => {
 
       const [, , options] = sendMessage.mock.calls[0];
       expect(options).toEqual({});
+    });
+  });
+
+  describe("validateSendTextBody", () => {
+    it("accepts a valid payload", () => {
+      const result = validateSendTextBody({
+        whatsapp_group_id: "120363123456789012@g.us",
+        message: "Annonce LivSight",
+      });
+      expect(result.ok).toBe(true);
+      expect(result.data.groupId).toBe("120363123456789012@g.us");
+      expect(result.data.message).toBe("Annonce LivSight");
+      expect(result.data.dryRun).toBe(false);
+    });
+
+    it("accepts dry_run true", () => {
+      const result = validateSendTextBody({
+        whatsapp_group_id: "120363123456789012@g.us",
+        message: "Test",
+        dry_run: true,
+      });
+      expect(result.ok).toBe(true);
+      expect(result.data.dryRun).toBe(true);
+    });
+
+    it("rejects group id without @g.us", () => {
+      const result = validateSendTextBody({
+        whatsapp_group_id: "120363123456789012",
+        message: "Hello",
+      });
+      expect(result.ok).toBe(false);
+      expect(result.errors).toContain("whatsapp_group_id must end with @g.us");
+    });
+
+    it("rejects empty message", () => {
+      const result = validateSendTextBody({
+        whatsapp_group_id: "120363123456789012@g.us",
+        message: "   ",
+      });
+      expect(result.ok).toBe(false);
+      expect(result.errors).toContain("message is required");
+    });
+
+    it("rejects message longer than MAX_TEXT_MESSAGE_LENGTH", () => {
+      const result = validateSendTextBody({
+        whatsapp_group_id: "120363123456789012@g.us",
+        message: "x".repeat(MAX_TEXT_MESSAGE_LENGTH + 1),
+      });
+      expect(result.ok).toBe(false);
+      expect(result.errors).toContain(
+        `message must be at most ${MAX_TEXT_MESSAGE_LENGTH} characters`
+      );
+    });
+  });
+
+  describe("sendTextToWhatsapp", () => {
+    it("sends plain text and returns serialized message id", async () => {
+      const sendMessage = jest.fn().mockResolvedValue({
+        id: { _serialized: "true_120363@g.us_ABCDEF" },
+      });
+      const client = { sendMessage };
+
+      const messageId = await sendTextToWhatsapp(client, {
+        groupId: "120363123456789012@g.us",
+        message: "Hello group",
+      });
+
+      expect(sendMessage).toHaveBeenCalledWith(
+        "120363123456789012@g.us",
+        "Hello group"
+      );
+      expect(messageId).toBe("true_120363@g.us_ABCDEF");
+    });
+
+    it("returns null when sendMessage has no id", async () => {
+      const sendMessage = jest.fn().mockResolvedValue({});
+      const messageId = await sendTextToWhatsapp(
+        { sendMessage },
+        { groupId: "120363123456789012@g.us", message: "Hi" }
+      );
+      expect(messageId).toBeNull();
     });
   });
 });

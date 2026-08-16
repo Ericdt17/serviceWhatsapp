@@ -4,10 +4,12 @@ const http = require("http");
 const botMetrics = require("./botMetrics");
 const {
   validateSendDocumentBody,
+  validateSendTextBody,
   verifyInternalToken,
 } = require("./botOutboundDocument");
 
 const INTERNAL_SEND_PATH = "/internal/send-document";
+const INTERNAL_SEND_TEXT_PATH = "/internal/send-text";
 
 function readJsonBody(req, maxBytes = 15 * 1024 * 1024) {
   return new Promise((resolve, reject) => {
@@ -47,13 +49,62 @@ function jsonResponse(res, status, body) {
 }
 
 /**
+ * Shared auth / ready gates for outbound send endpoints.
+ * @returns {boolean} true if the request may continue
+ */
+function assertOutboundAllowed(req, res, options) {
+  const { outboundEnabled, internalToken, sendHandler, handlerMissingMessage } =
+    options;
+
+  if (!outboundEnabled) {
+    jsonResponse(res, 403, {
+      success: false,
+      error: "forbidden",
+      message: "Outbound WhatsApp sending is disabled",
+    });
+    return false;
+  }
+
+  const tokenCheck = verifyInternalToken(
+    req.headers["x-bot-internal-token"],
+    internalToken
+  );
+  if (!tokenCheck.ok) {
+    const status = tokenCheck.reason === "not_configured" ? 503 : 401;
+    jsonResponse(res, status, {
+      success: false,
+      error:
+        tokenCheck.reason === "not_configured" ? "not_configured" : "unauthorized",
+      message:
+        tokenCheck.reason === "not_configured"
+          ? "Outbound send is not configured on this bot"
+          : "Invalid or missing X-Bot-Internal-Token",
+    });
+    return false;
+  }
+
+  if (typeof sendHandler !== "function") {
+    jsonResponse(res, 503, {
+      success: false,
+      error: "not_ready",
+      message: handlerMissingMessage,
+    });
+    return false;
+  }
+
+  return true;
+}
+
+/**
  * Minimal HTTP server for Uptime Kuma / load balancers.
  * GET /health or /metrics → JSON with status + counters.
  * POST /internal/send-document → send PDF to WhatsApp group (backend only).
+ * POST /internal/send-text → send plain text to WhatsApp group (backend only).
  *
  * @param {{
  *   getStatus: () => Promise<object>,
  *   sendDocument?: (payload: { groupId: string, filename: string, pdfBase64: string, caption: string }) => Promise<void>,
+ *   sendText?: (payload: { groupId: string, message: string, dryRun: boolean }) => Promise<string|null>,
  *   internalToken?: string | null,
  *   outboundEnabled?: boolean,
  * }} options
@@ -70,6 +121,7 @@ function startBotHealthServer(options) {
   const {
     getStatus,
     sendDocument,
+    sendText,
     internalToken = null,
     outboundEnabled = true,
   } = options;
@@ -94,42 +146,7 @@ function startBotHealthServer(options) {
     };
   }
 
-  async function handleSendDocument(req, res) {
-    if (!outboundEnabled) {
-      jsonResponse(res, 403, {
-        success: false,
-        error: "forbidden",
-        message: "Outbound WhatsApp sending is disabled",
-      });
-      return;
-    }
-
-    const tokenCheck = verifyInternalToken(
-      req.headers["x-bot-internal-token"],
-      internalToken
-    );
-    if (!tokenCheck.ok) {
-      const status = tokenCheck.reason === "not_configured" ? 503 : 401;
-      jsonResponse(res, status, {
-        success: false,
-        error: tokenCheck.reason === "not_configured" ? "not_configured" : "unauthorized",
-        message:
-          tokenCheck.reason === "not_configured"
-            ? "Outbound send is not configured on this bot"
-            : "Invalid or missing X-Bot-Internal-Token",
-      });
-      return;
-    }
-
-    if (typeof sendDocument !== "function") {
-      jsonResponse(res, 503, {
-        success: false,
-        error: "not_ready",
-        message: "WhatsApp send handler is not available",
-      });
-      return;
-    }
-
+  async function ensureClientReady(res) {
     const status = await getStatus();
     if (!status.ready) {
       jsonResponse(res, 503, {
@@ -137,6 +154,24 @@ function startBotHealthServer(options) {
         error: "bot_not_ready",
         message: "WhatsApp client is not ready",
       });
+      return false;
+    }
+    return true;
+  }
+
+  async function handleSendDocument(req, res) {
+    if (
+      !assertOutboundAllowed(req, res, {
+        outboundEnabled,
+        internalToken,
+        sendHandler: sendDocument,
+        handlerMissingMessage: "WhatsApp send handler is not available",
+      })
+    ) {
+      return;
+    }
+
+    if (!(await ensureClientReady(res))) {
       return;
     }
 
@@ -188,12 +223,109 @@ function startBotHealthServer(options) {
     }
   }
 
+  async function handleSendText(req, res) {
+    if (
+      !assertOutboundAllowed(req, res, {
+        outboundEnabled,
+        internalToken,
+        sendHandler: sendText,
+        handlerMissingMessage: "WhatsApp send handler is not available",
+      })
+    ) {
+      return;
+    }
+
+    if (!(await ensureClientReady(res))) {
+      return;
+    }
+
+    let body;
+    try {
+      // Text payloads are small; keep a tighter limit than PDF base64.
+      body = await readJsonBody(req, 64 * 1024);
+    } catch (err) {
+      if (err.message === "payload_too_large") {
+        jsonResponse(res, 413, {
+          success: false,
+          error: "payload_too_large",
+          message: "Text payload exceeds size limit",
+        });
+        return;
+      }
+      jsonResponse(res, 400, {
+        success: false,
+        error: "invalid_json",
+        message: "Request body must be valid JSON",
+      });
+      return;
+    }
+
+    const validation = validateSendTextBody(body);
+    if (!validation.ok) {
+      jsonResponse(res, 400, {
+        success: false,
+        error: "validation_error",
+        message: validation.errors.join("; "),
+        fields: validation.errors,
+      });
+      return;
+    }
+
+    const { groupId, message, dryRun } = validation.data;
+    console.log(
+      `[health] send-text group=${groupId} messageLength=${message.length} dryRun=${dryRun}`
+    );
+
+    if (dryRun) {
+      jsonResponse(res, 200, {
+        success: true,
+        sent: true,
+        whatsapp_group_id: groupId,
+        message_id: null,
+        dry_run: true,
+      });
+      return;
+    }
+
+    try {
+      const messageId = await sendText(validation.data);
+      jsonResponse(res, 200, {
+        success: true,
+        sent: true,
+        whatsapp_group_id: groupId,
+        message_id: messageId ?? null,
+      });
+    } catch (err) {
+      console.log(
+        `[health] send-text failed group=${groupId} messageLength=${message.length}: ${err.message}`
+      );
+      jsonResponse(res, 502, {
+        success: false,
+        error: "send_failed",
+        message: err.message || "Failed to send text via WhatsApp",
+      });
+    }
+  }
+
   const server = http.createServer(async (req, res) => {
     const path = req.url?.split("?")[0];
 
     if (req.method === "POST" && path === INTERNAL_SEND_PATH) {
       try {
         await handleSendDocument(req, res);
+      } catch (err) {
+        jsonResponse(res, 500, {
+          success: false,
+          error: "internal_error",
+          message: err.message,
+        });
+      }
+      return;
+    }
+
+    if (req.method === "POST" && path === INTERNAL_SEND_TEXT_PATH) {
+      try {
+        await handleSendText(req, res);
       } catch (err) {
         jsonResponse(res, 500, {
           success: false,
@@ -225,7 +357,7 @@ function startBotHealthServer(options) {
     console.log(`[health] Uptime Kuma endpoint http://${host}:${port}/health`);
     if (internalToken && outboundEnabled) {
       console.log(
-        `[health] Outbound send endpoint http://${host}:${port}${INTERNAL_SEND_PATH}`
+        `[health] Outbound send endpoints http://${host}:${port}${INTERNAL_SEND_PATH} and http://${host}:${port}${INTERNAL_SEND_TEXT_PATH}`
       );
     }
   });
@@ -237,4 +369,9 @@ function startBotHealthServer(options) {
   return { server, port, host };
 }
 
-module.exports = { startBotHealthServer, INTERNAL_SEND_PATH, readJsonBody };
+module.exports = {
+  startBotHealthServer,
+  INTERNAL_SEND_PATH,
+  INTERNAL_SEND_TEXT_PATH,
+  readJsonBody,
+};
