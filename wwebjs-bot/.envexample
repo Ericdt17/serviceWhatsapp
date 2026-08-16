@@ -171,10 +171,13 @@ BOT_HEALTH_BIND=127.0.0.1
 # PM2_APP_NAME=whatsapp-bot-core
 # BOT_WATCHDOG_DRY_RUN=0
 
-# Outbound send — backend_core calls POST /internal/send-document with this token
+# Outbound send — backend_core calls these with the same token:
+#   POST /internal/send-document  (PDF relevés)
+#   POST /internal/send-text      (annonces / broadcast 1 groupe)
 # Generate a long random secret; must match WHATSAPP_BOT_INTERNAL_TOKEN on core VPS
 # BOT_INTERNAL_TOKEN=change-me-long-random-secret
 # BOT_OUTBOUND_ENABLED=true
+# See docs/OPS_RUNBOOK.md — section "Outbound WhatsApp (backend → bot)"
 
 # ---------------------------
 # Cloudinary (optional)

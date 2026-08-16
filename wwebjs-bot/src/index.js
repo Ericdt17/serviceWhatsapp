@@ -7,7 +7,10 @@ const { createRemindersWorker } = require("./reminders/worker");
 const { generateDailyReport } = require("./lib/daily-report");
 const botAlerts = require("./lib/botAlerts");
 const { startBotHealthServer } = require("./lib/botHealthServer");
-const { sendDocumentToWhatsapp } = require("./lib/botOutboundDocument");
+const {
+  sendDocumentToWhatsapp,
+  sendTextToWhatsapp,
+} = require("./lib/botOutboundDocument");
 const {
   isShuttingDown,
   registerGracefulShutdown,
@@ -107,6 +110,15 @@ const client = new Client({
     type: "local",
     path: "./.wwebjs_cache/",
   },
+});
+
+// Kill the Chrome subprocess on any process exit (process.exit from watchdog,
+// fatal disconnect, or graceful SIGTERM) so it doesn't outlive Node as a zombie.
+process.on("exit", () => {
+  try {
+    const browserProc = client.pupBrowser?.process?.();
+    if (browserProc && !browserProc.killed) browserProc.kill("SIGKILL");
+  } catch { /* ignore — browser may already be gone */ }
 });
 
 // Show QR code in terminal when authentication needed
@@ -245,6 +257,7 @@ const healthServerHandle = startBotHealthServer({
   sendDocument: async (payload) => {
     await sendDocumentToWhatsapp(client, payload);
   },
+  sendText: async (payload) => sendTextToWhatsapp(client, payload),
 });
 
 botAlerts.init({
