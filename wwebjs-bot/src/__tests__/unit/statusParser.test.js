@@ -71,6 +71,11 @@ describe('parseStatusUpdate', () => {
       expect(!result || result.phone === null).toBe(true);
     });
 
+    it('strips spaced +237 on Livré messages', () => {
+      const result = parseStatusUpdate('Livré +237 6 98 09 75 33');
+      expect(result.phone).toBe('698097533');
+    });
+
     it('handles missing phone gracefully', () => {
       const result = parseStatusUpdate('Collecté 5k');
       expect(!result || result.phone === null || result.phone === undefined).toBe(true);

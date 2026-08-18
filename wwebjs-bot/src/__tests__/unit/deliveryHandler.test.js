@@ -221,4 +221,42 @@ describe("deliveryHandler handleDelivery (core mode)", () => {
     expect(coreApi.createTransaction).not.toHaveBeenCalled();
     expect(extractDeliveryWithAI).not.toHaveBeenCalled();
   });
+
+  it("quoted reply with non-order text does not create transaction or call AI", async () => {
+    const messageText = "???";
+    const msg = { ...msgStub(messageText, "reply-1"), hasQuotedMsg: true };
+
+    await handleDelivery({
+      messageText,
+      msg,
+      group: null,
+      agencyId: null,
+      linkedClient,
+      client: {},
+      config: baseConfig(),
+      whatsappGroupId,
+    });
+
+    expect(coreApi.createTransaction).not.toHaveBeenCalled();
+    expect(extractDeliveryWithAI).not.toHaveBeenCalled();
+    expect(msg.reply).not.toHaveBeenCalled();
+  });
+
+  it("quoted reply with strict 4-line order still creates transaction", async () => {
+    const messageText = "670111001\nAcide Glycolique\n5000\nAkwa";
+    const msg = { ...msgStub(messageText, "reply-strict-1"), hasQuotedMsg: true };
+
+    await handleDelivery({
+      messageText,
+      msg,
+      group: null,
+      agencyId: null,
+      linkedClient,
+      client: {},
+      config: baseConfig({ AI_DELIVERY_FALLBACK_ENABLED: false }),
+      whatsappGroupId,
+    });
+
+    expect(coreApi.createTransaction).toHaveBeenCalledTimes(1);
+  });
 });

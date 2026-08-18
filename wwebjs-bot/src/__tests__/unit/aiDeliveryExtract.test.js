@@ -94,6 +94,30 @@ describe("validateAndNormalizeAiDelivery", () => {
     expect(out.amount_due).toBe(8000);
   });
 
+  it("does not keep 237 country-code fragment as phone on spaced +237 message", () => {
+    const text = [
+      "Mixa bright",
+      "Gants",
+      "Lait bright",
+      "Savon",
+      "+237 6 98 09 75 33",
+      "Messassi",
+      "13000",
+    ].join("\n");
+    const out = validateAndNormalizeAiDelivery(
+      {
+        phone: "698097533",
+        product: "Mixa bright, Gants, Lait bright, Savon",
+        amount: 13000,
+        location: "Messassi",
+      },
+      text
+    );
+    expect(out).not.toBeNull();
+    expect(out.phone).toBe("698097533");
+    expect(out.amount_due).toBe(13000);
+  });
+
   it("trusts model amount on labeled Montant when regex disagrees", () => {
     const text = [
       "Numéro : 694397546",
@@ -161,6 +185,21 @@ describe("validateAndNormalizeAiDelivery", () => {
     );
     expect(out).not.toBeNull();
     expect(out.amount_due).toBe(0);
+  });
+
+  it("returns null quartier when message has products but no location", () => {
+    const text = ["640399915", "Crème bright", "Gants", "10500"].join("\n");
+    const out = validateAndNormalizeAiDelivery(
+      {
+        phone: "640399915",
+        product: "Crème bright, Gants",
+        amount: 10500,
+        location: "Gants",
+      },
+      text
+    );
+    expect(out).not.toBeNull();
+    expect(out.quartier).toBeNull();
   });
 });
 

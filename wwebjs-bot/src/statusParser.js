@@ -2,18 +2,26 @@
 
 /**
  * Extract phone number from status message
- * Examples: "Livré 6xx123456", "Échec 72158817", "+23772158817"
+ * Examples: "Livré 6xx123456", "Échec 72158817", "+237 6 98 09 75 33"
  */
 function extractPhoneFromStatus(text) {
-  // +237 prefix first (before stripping whitespace loses the + context)
-  const intlMatch = text.match(/\+237(\d{8,9})/);
-  if (intlMatch) {
-    const local = intlMatch[1];
-    return local.length === 9 ? local : "6" + local;
+  const intlSpaced = String(text || "").match(/\+?\s*237[\s.\-]*\d[\d\s.\-]{6,}/);
+  if (intlSpaced) {
+    let digits = intlSpaced[0].replace(/\D/g, "");
+    if (digits.startsWith("237") && digits.length >= 11) {
+      digits = digits.slice(3);
+    }
+    if (/^[627]\d{8}$/.test(digits)) {
+      return digits;
+    }
+    if (/^[627]\d{7}$/.test(digits)) {
+      return "6" + digits;
+    }
   }
 
   // Remove all spaces and common separators
-  const cleaned = text.replace(/[\s\-\.]/g, "");
+  let cleaned = text.replace(/[\s\-\.]/g, "");
+  cleaned = cleaned.replace(/\+?237(?=[627])/g, "");
 
   // Pattern 1: Cameroon mobile starting with 6, 7, or 2 (9 digits)
   const pattern1 = /[627]\d{8}/;

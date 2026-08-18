@@ -248,6 +248,22 @@ describe("coreApiClient auth retry", () => {
     expect(fields.raw_input).toBe(messageText);
   });
 
+  it("mapParsedToTransaction uses N/A when quartier is null", () => {
+    const { mapParsedToTransaction } = require("../../services/coreApiClient");
+    const messageText = "640399915\nCrème bright\nGants\n10500";
+    const fields = mapParsedToTransaction(
+      {
+        phone: "640399915",
+        items: "Crème bright — Gants",
+        amount_due: 10500,
+        quartier: null,
+      },
+      messageText,
+      { source: "pickup", package_name: "Crème bright", quantity: 2 }
+    );
+    expect(fields.destination_street).toBe("N/A");
+  });
+
   it("mapParsedToTransaction uses package_name as description; full text in raw_input", () => {
     const { mapParsedToTransaction } = require("../../services/coreApiClient");
     const messageText = "699000001\n2 robes\n12000\nAkwa";

@@ -121,6 +121,8 @@ Montant (FCFA)
 Quartier de livraison
 ```
 
+**Recommandé** — si le quartier est absent ou introuvable dans le message, la commande est **quand même créée** avec l’adresse `N/A` dans le dashboard (pas de blocage). Pour les messages multi-produits, mettez le quartier sur une ligne dédiée ou avec un label `Lieu:` / `Quartier:`.
+
 **Exemple :**
 
 ```

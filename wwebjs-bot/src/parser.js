@@ -17,6 +17,25 @@ function isValidOrderAmount(amount) {
 }
 
 /**
+ * 8–9 digit Cameroon local mobile (6/7/2…), stripping +237 / 237.
+ * @param {string} raw
+ * @returns {string|null}
+ */
+function toLocalCameroonMobile(raw) {
+  let digits = String(raw || "").replace(/\D/g, "");
+  if (digits.startsWith("237") && digits.length >= 11) {
+    digits = digits.slice(3);
+  }
+  if (/^[627]\d{8}$/.test(digits)) {
+    return digits;
+  }
+  if (/^[627]\d{7}$/.test(digits)) {
+    return "6" + digits;
+  }
+  return null;
+}
+
+/**
  * Extract phone number from text
  * Looks for patterns like: 6xx, 6xxxxx, +237, etc.
  */
@@ -46,26 +65,25 @@ function extractPhone(text) {
     /num[ée]ro\s*[:\s]+\+?\s*237\s*([^\n]+)/i
   );
   if (numeroPlus && numeroPlus[1]) {
-    const digits = numeroPlus[1].replace(/[^\d]/g, "");
-    if (digits.startsWith("6") && digits.length >= 8) {
-      const nine = digits.slice(0, 9);
-      if (nine.length === 9) return nine;
-      return nine.padEnd(9, "0");
+    const local = toLocalCameroonMobile(numeroPlus[1]);
+    if (local) {
+      return local;
     }
   }
 
-  // Pattern 3 first: +237 followed by 8-9 digits — run on raw text (before stripping
-  // newlines) so adjacent lines like "3 bee venom" don't bleed into the digit match.
-  const pattern3 = /\+237(\d{8,9})/;
-  const match3 = text.match(pattern3);
-  if (match3) {
-    const local = match3[1];
-    // 9 digits → keep as-is; 8 digits → prepend 6 (replace +237 with 6)
-    return local.length === 9 ? local : "6" + local;
+  // +237 with optional spaces (WhatsApp: "+237 6 98 09 75 33")
+  const intlSpaced = text.match(/\+?\s*237[\s.\-]*\d[\d\s.\-]{6,}/);
+  if (intlSpaced) {
+    const local = toLocalCameroonMobile(intlSpaced[0]);
+    if (local) {
+      return local;
+    }
   }
 
   // Remove all spaces and common separators (newlines too) for remaining patterns
-  const cleaned = text.replace(/[\s\-\.]/g, "");
+  let cleaned = text.replace(/[\s\-\.]/g, "");
+  // Drop country code so "[627]\d{8}" does not match the "2" of "237…"
+  cleaned = cleaned.replace(/\+?237(?=[627])/g, "");
 
   // Pattern 1: Cameroon mobile starting with 6, 7, or 2 (9 digits)
   const pattern1 = /[627]\d{8}/;
@@ -167,38 +185,12 @@ function extractAmount(text) {
 
 /**
  * Extract quartier (neighborhood) from text
- * Common quartiers in Douala/Cameroon
+ * Common quartiers in Douala/Cameroon (shared list — see lib/deliveryQuartiers.js)
  */
-const COMMON_QUARTIERS = [
-  "bonapriso",
-  "akwa",
-  "douala",
-  "makepe",
-  "logpom",
-  "pk8",
-  "pk12",
-  "wouri",
-  "deido",
-  "bessengue",
-  "new-bell",
-  "newbell",
-  "bonanjo",
-  "kotto",
-  "ndokotti",
-  "bepanda",
-  "denver",
-];
+const { KNOWN_QUARTIERS, extractKnownQuartier } = require("./lib/deliveryQuartiers");
 
 function extractQuartier(text) {
-  const lowerText = text.toLowerCase();
-
-  for (const quartier of COMMON_QUARTIERS) {
-    if (lowerText.includes(quartier)) {
-      return quartier;
-    }
-  }
-
-  return null;
+  return extractKnownQuartier(text);
 }
 
 /**
@@ -283,6 +275,10 @@ function parseAlternativeFormat(text) {
   // Last line: Phone number
   const phoneLine = lines[lines.length - 1];
   let phone = phoneLine.replace(/[\s\-\.]/g, ""); // Remove spaces and separators
+  const localLast = toLocalCameroonMobile(phone);
+  if (localLast) {
+    phone = localLast;
+  }
 
   // Check if it's a valid phone number (6, 7, or 2 start)
   if (!/^[627]/.test(phone) || phone.length < 8) {
@@ -388,11 +384,11 @@ function parseCompactStructuredFormat(text) {
   // Line 1: Phone number
   const phoneLine = lines[0];
   let phone = phoneLine.replace(/[^\dx+]/gi, ""); // Keep only digits, x, and +
-  // Strip +237 country code if present
-  if (phone.startsWith("+237") || phone.startsWith("237")) {
-    phone = phone.replace(/^\+?237/, "");
-  }
   phone = phone.replace(/x/gi, "0");
+  const localFirst = toLocalCameroonMobile(phone);
+  if (localFirst) {
+    phone = localFirst;
+  }
   if (!/^[627]/.test(phone)) {
     return {
       valid: false,
@@ -494,9 +490,9 @@ function parseDeliveryMessage(text) {
     const firstLineIsQuartier =
       !/^\d+$/.test(firstLine) &&
       !/^[627]\d{7,8}$/.test(firstLine.replace(/\s/g, ""));
-    const lastLineIsPhone = /^[627][\d\sx]{7,10}$/i.test(
-      lastLine.replace(/[\s\-\.]/g, "")
-    );
+    const lastLineIsPhone =
+      Boolean(toLocalCameroonMobile(lastLine)) ||
+      /^[627][\d\sx]{7,10}$/i.test(lastLine.replace(/[\s\-\.]/g, ""));
 
     if (firstLineIsQuartier && lastLineIsPhone) {
       const altResult = parseAlternativeFormat(text);
@@ -603,7 +599,7 @@ function looksLikeMalformedDeliveryWithParsed(text, parsed) {
    * True when at least one line looks like a free-form location:
    * - not empty, not a pure phone number, not a pure amount
    * - contains at least one letter (rules out pure digit lines)
-   * Does NOT require a known COMMON_QUARTIERS match.
+   * Does NOT require a known KNOWN_QUARTIERS match.
    */
   function hasLocationSignal() {
     const lines = stripped.split("\n").map((l) => l.trim()).filter(Boolean);
@@ -728,6 +724,7 @@ module.exports = {
   hasLabeledOrderFields,
   getFormatReminderMessage,
   extractPhone,
+  toLocalCameroonMobile,
   extractAmount,
   extractQuartier,
   extractCarrier,

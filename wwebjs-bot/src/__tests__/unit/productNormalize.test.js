@@ -66,4 +66,30 @@ describe("sanitizeDeliveryLocation", () => {
     const text = "612345678\n2 robes\n15k\nMakepe";
     expect(sanitizeDeliveryLocation("Prix 12000", text)).toBe("makepe");
   });
+
+  it("returns null when only product lines remain (no quartier)", () => {
+    const text = ["640399915", "Crème bright", "Gants", "10500"].join("\n");
+    expect(
+      sanitizeDeliveryLocation("Gants", text, {
+        productLines: ["Crème bright", "Gants"],
+      })
+    ).toBeNull();
+  });
+
+  it("detects Messassi in multi-product message with spaced +237 phone", () => {
+    const text = [
+      "Mixa bright",
+      "Gants",
+      "Lait bright",
+      "Savon",
+      "+237 6 98 09 75 33",
+      "Messassi",
+      "13000",
+    ].join("\n");
+    expect(
+      sanitizeDeliveryLocation("Messassi", text, {
+        productLines: ["Mixa bright", "Gants", "Lait bright", "Savon"],
+      })
+    ).toMatch(/messassi/i);
+  });
 });

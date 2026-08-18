@@ -6,6 +6,8 @@ const {
   looksLikeMalformedDelivery,
   looksLikeMalformedDeliveryWithParsed,
   getFormatReminderMessage,
+  extractPhone,
+  extractQuartier,
 } = require('../../parser');
 
 // ---------------------------------------------------------------------------
@@ -54,6 +56,24 @@ describe('parseDeliveryMessage', () => {
       expect(result.valid).toBe(true);
       expect(result.phone).toBe('690829269');
       expect(result.amount_due).toBe(0);
+    });
+
+    it('accepts +237 with spaces as first line', () => {
+      const msg = '+237 6 98 09 75 33\nMixa bright\n13000\nMessassi';
+      const result = parseDeliveryMessage(msg);
+      expect(result.valid).toBe(true);
+      expect(result.phone).toBe('698097533');
+      expect(result.amount_due).toBe(13000);
+      expect(result.quartier).toBe('Messassi');
+    });
+
+    it('accepts +237 with spaces as last line (alternative format)', () => {
+      const msg = 'Messassi\nMixa bright\nGants\n13000\n+237 6 98 09 75 33';
+      const result = parseDeliveryMessage(msg);
+      expect(result.valid).toBe(true);
+      expect(result.phone).toBe('698097533');
+      expect(result.quartier).toBe('Messassi');
+      expect(result.amount_due).toBe(13000);
     });
 
     it('still rejects amounts between 1 and 99', () => {
@@ -162,6 +182,34 @@ describe('isDeliveryMessage', () => {
 // ---------------------------------------------------------------------------
 // looksLikeMalformedDelivery / getFormatReminderMessage
 // ---------------------------------------------------------------------------
+describe('extractPhone', () => {
+  it('strips spaced +237 and returns 9-digit local mobile', () => {
+    expect(extractPhone('+237 6 98 09 75 33')).toBe('698097533');
+  });
+
+  it('does not treat country code 237 as a 2xxxxxxxx number', () => {
+    const msg = [
+      'Mixa bright',
+      'Gants',
+      'Lait bright',
+      'Savon',
+      '+237 6 98 09 75 33',
+      'Messassi',
+      '13000',
+    ].join('\n');
+    expect(extractPhone(msg)).toBe('698097533');
+    expect(extractPhone(msg)).not.toBe('237698097');
+  });
+
+  it('still accepts compact +237 without spaces', () => {
+    expect(extractPhone('+237698097533')).toBe('698097533');
+  });
+
+  it('strips 237 without plus when followed by a mobile', () => {
+    expect(extractPhone('237 698097533')).toBe('698097533');
+  });
+});
+
 describe('looksLikeMalformedDelivery', () => {
   it('returns false for a plain greeting', () => {
     expect(looksLikeMalformedDelivery('bonjour comment tu vas')).toBe(false);
@@ -250,5 +298,12 @@ describe('getFormatReminderMessage', () => {
     expect(text).toMatch(/6000/);
     expect(text).toMatch(/Messassi/i);
     expect(text).not.toMatch(/Format alternatif/i);
+  });
+});
+
+describe('extractQuartier', () => {
+  it('detects Messassi and Logbaba in free text', () => {
+    expect(extractQuartier('Livraison vers Messassi')).toBe('messassi');
+    expect(extractQuartier('Quartier Logbaba')).toBe('logbaba');
   });
 });

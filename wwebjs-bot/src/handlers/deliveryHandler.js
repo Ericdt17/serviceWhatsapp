@@ -82,6 +82,19 @@ async function saveDelivery({
       return { skipped: true, localIdempotent: true };
     }
 
+    if (!parsed.quartier) {
+      botLogger.order.info(
+        {
+          event: "order_quartier_missing",
+          whatsappMessageId,
+          quartier: null,
+          destination_street: "N/A",
+          viaAi,
+        },
+        "No quartier detected; Core will use destination_street N/A"
+      );
+    }
+
     try {
       const result = await coreApi.createTransaction(
         linkedClient.keycloakId,
@@ -236,6 +249,14 @@ async function handleDelivery({
 
   const whatsappMessageId = msg.id._serialized;
   const deliveryData = parseDeliveryMessage(messageText);
+
+  if (msg.hasQuotedMsg && !deliveryData.valid) {
+    console.log(
+      "   ⏭️  Skipped: reply to another message (not a strict new order)"
+    );
+    return;
+  }
+
   console.log(
     "   🔍 strict delivery parse valid:",
     deliveryData.valid,
