@@ -32,6 +32,11 @@ function toLocalCameroonMobile(raw) {
   if (/^[627]\d{7}$/.test(digits)) {
     return "6" + digits;
   }
+  // 8 digits not starting with 6/2/7 — try prefixing 6
+  if (/^\d{8}$/.test(digits)) {
+    const candidate = "6" + digits;
+    if (/^6\d{8}$/.test(candidate)) return candidate;
+  }
   return null;
 }
 
