@@ -38,7 +38,7 @@ function formatStatusMessage(status) {
     `WhatsApp: ${wa}`,
     `API Core: ${api}`,
     `Circuit: ${circuit}`,
-    `Commandes OK: ${m.ordersOk ?? 0} | échecs: ${m.ordersFailed ?? 0} | idempotents: ${m.ordersSkippedIdempotent ?? 0}`,
+    `Commandes OK: ${m.ordersOk ?? 0} | échecs: ${m.ordersFailed ?? 0} | idempotents: ${m.ordersSkippedIdempotent ?? 0} | doublons: ${m.ordersSkippedDuplicate ?? 0}`,
     `CLIENT_ID: ${status.clientId || "(default)"}`,
     `Uptime: ${formatUptimeMinutes(status.metrics?.uptimeSeconds ?? 0)}`,
   ];

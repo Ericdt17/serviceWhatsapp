@@ -9,6 +9,7 @@ const {
 const {
   normalizeItemsAndQuantity,
   sanitizeDeliveryLocation,
+  splitProductParts,
 } = require("./productNormalize");
 
 const SYSTEM_PROMPT = `You are a delivery-order extractor for LivSight (Cameroon, mainly Douala/Yaoundé).
@@ -221,9 +222,15 @@ function validateAndNormalizeAiDelivery(modelObj, originalText) {
     productRaw.length > 0 ? productRaw : "Non spécifié"
   );
 
+  const productLines = [
+    ...splitProductParts(productRaw),
+    ...splitProductParts(displayItems),
+  ];
+
   const quartier = sanitizeDeliveryLocation(
     modelObj.location != null ? String(modelObj.location) : null,
-    text
+    text,
+    { productLines }
   );
 
   return {

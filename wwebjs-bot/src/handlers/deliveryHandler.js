@@ -15,13 +15,23 @@ const coreApi = require("../services/coreApiClient");
 const botAlerts = require("../lib/botAlerts");
 const { logStructuredError } = require("../lib/formatApiError");
 const orderIdempotency = require("../lib/orderIdempotency");
+const orderSemanticDedup = require("../lib/orderSemanticDedup");
 const failedOrderDeadLetter = require("../lib/failedOrderDeadLetter");
 const { extractTransactionRef } = require("../lib/transactionResponse");
 const botMetrics = require("../lib/botMetrics");
 const botLogger = require("../lib/botLogger");
+const { replyInWhatsappGroup } = require("../lib/waGroupReply");
 
 /** groupId:author → timestamp of last format-reminder sent (ms) */
 const formatReminderCooldownByKey = new Map();
+
+function duplicateOrderReplyText(refLabel) {
+  const ref = refLabel && String(refLabel) !== "N/A" ? String(refLabel) : null;
+  const title = ref
+    ? `✅ Commande #${ref} déjà sur le dashboard.`
+    : "✅ Commande déjà sur le dashboard.";
+  return `${title}\n\nVérifiez-la, ne renvoyez pas le même message.`;
+}
 
 function persistFailedOrder(ctx, error) {
   botMetrics.increment("ordersFailed");
@@ -36,6 +46,19 @@ function persistFailedOrder(ctx, error) {
   );
   failedOrderDeadLetter.writeFailedOrder({ ...ctx, error });
   botAlerts.notifyDeliverySaveFailed(error);
+}
+
+function semanticDedupEnabled(config) {
+  return config.ORDER_SEMANTIC_DEDUP_ENABLED !== false;
+}
+
+function orderFingerprint(parsed, whatsappGroupId) {
+  return orderSemanticDedup.fingerprint({
+    whatsappGroupId,
+    phone: parsed.phone,
+    amount_due: parsed.amount_due,
+    items: parsed.items,
+  });
 }
 
 /**
@@ -65,6 +88,7 @@ async function saveDelivery({
   client,
   viaAi,
   whatsappGroupId,
+  msg,
 }) {
   if (config.USE_CORE_API) {
     if (!linkedClient?.keycloakId) {
@@ -80,6 +104,56 @@ async function saveDelivery({
         `   ⏭️  Transaction already submitted for message ${whatsappMessageId}`
       );
       return { skipped: true, localIdempotent: true };
+    }
+
+    if (semanticDedupEnabled(config)) {
+      const fp = orderFingerprint(parsed, whatsappGroupId);
+      const hit = orderSemanticDedup.findRecent(fp);
+      if (hit) {
+        botMetrics.increment("ordersSkippedDuplicate");
+        orderIdempotency.markSubmitted(whatsappMessageId, {
+          transactionRef: hit.transactionRef,
+        });
+        const refLabel = hit.transactionRef || "N/A";
+        botLogger.order.info(
+          {
+            event: "order_skipped_semantic_duplicate",
+            whatsappMessageId,
+            transactionRef: hit.transactionRef,
+            fingerprint: fp,
+            viaAi,
+          },
+          "Semantic duplicate skipped"
+        );
+        console.log(`   ⏭️  Semantic duplicate of ${refLabel} — skip create`);
+        const replyText = duplicateOrderReplyText(refLabel);
+        try {
+          await replyInWhatsappGroup({
+            client,
+            whatsappGroupId,
+            msg,
+            text: replyText,
+          });
+        } catch (replyErr) {
+          console.log(
+            `   ⚠️  Could not send duplicate reply: ${replyErr.message}`
+          );
+        }
+        return { skipped: true, semanticDuplicate: true };
+      }
+    }
+
+    if (!parsed.quartier) {
+      botLogger.order.info(
+        {
+          event: "order_quartier_missing",
+          whatsappMessageId,
+          quartier: null,
+          destination_street: "N/A",
+          viaAi,
+        },
+        "No quartier detected; Core will use destination_street N/A"
+      );
     }
 
     try {
@@ -99,6 +173,11 @@ async function saveDelivery({
         extractTransactionRef(result);
 
       orderIdempotency.markSubmitted(whatsappMessageId, { transactionRef: ref });
+      if (semanticDedupEnabled(config)) {
+        orderSemanticDedup.remember(orderFingerprint(parsed, whatsappGroupId), {
+          transactionRef: ref,
+        });
+      }
       botMetrics.increment("ordersOk");
       botLogger.order.info(
         {
@@ -236,6 +315,14 @@ async function handleDelivery({
 
   const whatsappMessageId = msg.id._serialized;
   const deliveryData = parseDeliveryMessage(messageText);
+
+  if (msg.hasQuotedMsg && !deliveryData.valid) {
+    console.log(
+      "   ⏭️  Skipped: reply to another message (not a strict new order)"
+    );
+    return;
+  }
+
   console.log(
     "   🔍 strict delivery parse valid:",
     deliveryData.valid,
@@ -269,6 +356,7 @@ async function handleDelivery({
         client,
         viaAi: false,
         whatsappGroupId,
+        msg,
       });
     } catch (dbError) {
       logStructuredError("Erreur lors de la sauvegarde", dbError);
@@ -356,6 +444,7 @@ async function handleDelivery({
           client,
           viaAi: true,
           whatsappGroupId,
+          msg,
         });
         savedViaAi = true;
       } catch (dbAiError) {
@@ -407,4 +496,4 @@ async function handleDelivery({
   }
 }
 
-module.exports = { handleDelivery };
+module.exports = { handleDelivery, duplicateOrderReplyText };

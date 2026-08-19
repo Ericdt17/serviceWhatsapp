@@ -87,6 +87,7 @@ describe("staffCommands", () => {
         ordersOk: 3,
         ordersFailed: 1,
         ordersSkippedIdempotent: 2,
+        ordersSkippedDuplicate: 4,
         uptimeSeconds: 120,
       },
     });
@@ -95,6 +96,7 @@ describe("staffCommands", () => {
     const text = formatStatusMessage(await health.getBotHealthStatus());
     expect(text).toMatch(/WhatsApp: OK/);
     expect(text).toMatch(/Commandes OK: 3/);
+    expect(text).toMatch(/doublons: 4/);
 
     const msg = dmMsg("#status");
     await handleStaffCommand(msg, {});

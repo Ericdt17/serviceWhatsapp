@@ -4,7 +4,11 @@ const {
   parseQuantityAndProduct,
   splitProductParts,
 } = require("./packageCatalogMatch");
-const { extractQuartier } = require("../parser");
+const { normalizeCatalogText } = require("./catalogTextUtils");
+const {
+  extractKnownQuartier,
+  isKnownQuartier,
+} = require("./deliveryQuartiers");
 
 /**
  * Normalize product line(s): join multi-product with em dash, sum quantities.
@@ -54,12 +58,82 @@ function isPriceLikeLocation(loc) {
   return false;
 }
 
+function lineLooksLikePhone(line) {
+  const digits = String(line || "").replace(/\D/g, "");
+  if (/^[627]\d{7,8}$/.test(digits)) {
+    return true;
+  }
+  if (/^237[627]\d{8}$/.test(digits)) {
+    return true;
+  }
+  return false;
+}
+
+function lineLooksLikeProduct(line, productLines = []) {
+  const normalizedLine = normalizeCatalogText(line);
+  if (!normalizedLine) {
+    return false;
+  }
+
+  for (const product of productLines) {
+    const normalizedProduct = normalizeCatalogText(product);
+    if (!normalizedProduct) {
+      continue;
+    }
+    if (normalizedLine === normalizedProduct) {
+      return true;
+    }
+    if (
+      normalizedProduct.includes(normalizedLine) &&
+      normalizedLine.length >= 3
+    ) {
+      return true;
+    }
+    if (
+      normalizedLine.includes(normalizedProduct) &&
+      normalizedProduct.length >= 3
+    ) {
+      return true;
+    }
+  }
+  return false;
+}
+
+function findAmountLineIndex(lines) {
+  for (let i = lines.length - 1; i >= 0; i--) {
+    const line = lines[i];
+    if (isPriceLikeLocation(line)) {
+      return i;
+    }
+    if (/^\d[\d\s.,k]+(?:\s*(?:fcfa|frs|fr|xaf|f))?$/i.test(line.trim())) {
+      return i;
+    }
+  }
+  return -1;
+}
+
+function shouldSkipLocationLine(line) {
+  if (!/[a-zA-ZÀ-ÿ]/.test(line)) {
+    return true;
+  }
+  if (
+    /^(?:prix|montant|total|livraison|frais|tel|num|produit|article|colis|pack|commande|un pack)/i.test(
+      line
+    )
+  ) {
+    return true;
+  }
+  if (/^\d[\d\s]*$/.test(line.replace(/\s/g, ""))) {
+    return true;
+  }
+  return false;
+}
+
 /**
- * Pick a free-text quartier line from message body (last resort).
  * @param {string} text
  * @returns {string|null}
  */
-function extractLocationLineFromMessage(text) {
+function extractLabeledLocation(text) {
   const lines = String(text || "")
     .split("\n")
     .map((l) => l.trim())
@@ -76,16 +150,55 @@ function extractLocationLineFromMessage(text) {
       }
     }
   }
+  return null;
+}
 
-  for (let i = lines.length - 1; i >= 0; i--) {
+/**
+ * Pick a free-text quartier line from message body (last resort).
+ * @param {string} text
+ * @param {{ productLines?: string[] }} [options]
+ * @returns {string|null}
+ */
+function extractLocationLineFromMessage(text, options = {}) {
+  const { productLines = [] } = options;
+  const lines = String(text || "")
+    .split("\n")
+    .map((l) => l.trim())
+    .filter(Boolean);
+
+  const amountIdx = findAmountLineIndex(lines);
+  const searchOrder = [];
+
+  if (amountIdx >= 0) {
+    for (let i = amountIdx + 1; i < lines.length; i++) {
+      searchOrder.push(i);
+    }
+    for (let i = amountIdx - 1; i >= 0; i--) {
+      searchOrder.push(i);
+    }
+  } else {
+    for (let i = lines.length - 1; i >= 0; i--) {
+      searchOrder.push(i);
+    }
+  }
+
+  for (const i of searchOrder) {
     const line = lines[i];
-    if (!/[a-zA-ZÀ-ÿ]/.test(line)) continue;
-    if (/^(?:prix|montant|total|livraison|frais|tel|num|produit|article|colis|pack|commande|un pack)/i.test(line)) {
+    if (shouldSkipLocationLine(line)) {
       continue;
     }
-    if (/^\d[\d\s]*$/.test(line.replace(/\s/g, ""))) continue;
-    if (isPriceLikeLocation(line)) continue;
-    if (/^[627]\d{7,8}$/.test(line.replace(/\D/g, ""))) continue;
+    if (lineLooksLikePhone(line)) {
+      continue;
+    }
+    if (isPriceLikeLocation(line)) {
+      continue;
+    }
+    if (lineLooksLikeProduct(line, productLines)) {
+      continue;
+    }
+    if (isKnownQuartier(line)) {
+      return extractKnownQuartier(line) || line;
+    }
     if (line.length >= 2) {
       return line;
     }
@@ -94,27 +207,48 @@ function extractLocationLineFromMessage(text) {
 }
 
 /**
- * Sanitize AI/model location — never use Prix/Montant lines as quartier.
+ * Sanitize AI/model location — never use Prix/Montant lines or product names as quartier.
  * @param {string|null|undefined} modelLocation
  * @param {string} originalText
+ * @param {{ productLines?: string[] }} [options]
  * @returns {string|null}
  */
-function sanitizeDeliveryLocation(modelLocation, originalText) {
-  const fromKnown = extractQuartier(originalText);
-  if (fromKnown) return fromKnown;
+function sanitizeDeliveryLocation(modelLocation, originalText, options = {}) {
+  const { productLines = [] } = options;
+
+  const fromKnown = extractKnownQuartier(originalText);
+  if (fromKnown) {
+    return fromKnown;
+  }
+
+  const fromLabel = extractLabeledLocation(originalText);
+  if (fromLabel && !lineLooksLikeProduct(fromLabel, productLines)) {
+    return isKnownQuartier(fromLabel)
+      ? extractKnownQuartier(fromLabel) || fromLabel
+      : fromLabel;
+  }
 
   const modelLoc = String(modelLocation || "").trim();
-  if (modelLoc && !isPriceLikeLocation(modelLoc)) {
+  if (
+    modelLoc &&
+    !isPriceLikeLocation(modelLoc) &&
+    !lineLooksLikeProduct(modelLoc, productLines)
+  ) {
+    if (isKnownQuartier(modelLoc)) {
+      return extractKnownQuartier(modelLoc) || modelLoc;
+    }
     return modelLoc;
   }
 
-  return extractLocationLineFromMessage(originalText);
+  return extractLocationLineFromMessage(originalText, { productLines });
 }
 
 module.exports = {
   splitProductParts,
   normalizeItemsAndQuantity,
   isPriceLikeLocation,
+  lineLooksLikeProduct,
   sanitizeDeliveryLocation,
   extractLocationLineFromMessage,
+  extractLabeledLocation,
 };

@@ -79,5 +79,13 @@ module.exports = {
   // Internal outbound send (dashboard → backend → bot)
   BOT_INTERNAL_TOKEN: process.env.BOT_INTERNAL_TOKEN || null,
   BOT_OUTBOUND_ENABLED: process.env.BOT_OUTBOUND_ENABLED !== "false",
+
+  // Same group+phone+amount+items within this window → skip Core POST (resend)
+  ORDER_SEMANTIC_DEDUP_ENABLED:
+    process.env.ORDER_SEMANTIC_DEDUP_ENABLED !== "false",
+  ORDER_SEMANTIC_DEDUP_WINDOW_MS: (() => {
+    const n = parseInt(process.env.ORDER_SEMANTIC_DEDUP_WINDOW_MS || "600000", 10);
+    return Number.isFinite(n) && n > 0 ? n : 600000;
+  })(),
 };
 
