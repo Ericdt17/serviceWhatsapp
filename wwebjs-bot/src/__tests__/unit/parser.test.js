@@ -208,6 +208,14 @@ describe('extractPhone', () => {
   it('strips 237 without plus when followed by a mobile', () => {
     expect(extractPhone('237 698097533')).toBe('698097533');
   });
+
+  it('prefixes 6 when +237 is followed by 8 digits missing leading 6', () => {
+    expect(extractPhone('+23794275864')).toBe('694275864');
+  });
+
+  it('prefixes 6 when 237 (no plus) is followed by 8 digits missing leading 6', () => {
+    expect(extractPhone('23794275864')).toBe('694275864');
+  });
 });
 
 describe('looksLikeMalformedDelivery', () => {
