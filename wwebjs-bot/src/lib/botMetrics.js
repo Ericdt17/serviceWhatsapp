@@ -6,6 +6,7 @@ const counters = {
   ordersOk: 0,
   ordersFailed: 0,
   ordersSkippedIdempotent: 0,
+  ordersSkippedDuplicate: 0,
   coreApi401: 0,
   waReconnects: 0,
   circuitBreakerOpens: 0,

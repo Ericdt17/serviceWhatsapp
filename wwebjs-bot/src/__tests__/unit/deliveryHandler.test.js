@@ -1,5 +1,9 @@
 "use strict";
 
+const fs = require("fs");
+const os = require("os");
+const path = require("path");
+
 jest.mock("../../db", () => ({
   createDelivery: jest.fn(),
   findDeliveryByMessageId: jest.fn(),
@@ -36,8 +40,9 @@ const {
   validateAndNormalizeAiDelivery,
 } = require("../../lib/aiDeliveryExtract");
 const orderIdempotency = require("../../lib/orderIdempotency");
+const orderSemanticDedup = require("../../lib/orderSemanticDedup");
 const failedOrderDeadLetter = require("../../lib/failedOrderDeadLetter");
-const { handleDelivery } = require("../../handlers/deliveryHandler");
+const { handleDelivery, duplicateOrderReplyText } = require("../../handlers/deliveryHandler");
 
 const LABELED_FR =
   "- nom du destinataire : Aboah Elogo Thania\n" +
@@ -49,6 +54,7 @@ const LABELED_FR =
 describe("deliveryHandler handleDelivery (core mode)", () => {
   const linkedClient = { keycloakId: "kc-1", source: "api" };
   const whatsappGroupId = "120363@g.us";
+  let tmpDir;
 
   function baseConfig(overrides = {}) {
     return {
@@ -59,6 +65,8 @@ describe("deliveryHandler handleDelivery (core mode)", () => {
       FORMAT_REMINDER_COOLDOWN_MS: 0,
       SEND_CONFIRMATIONS: "false",
       GROUP_ID: null,
+      ORDER_SEMANTIC_DEDUP_ENABLED: true,
+      ORDER_SEMANTIC_DEDUP_WINDOW_MS: 600000,
       ...overrides,
     };
   }
@@ -74,14 +82,36 @@ describe("deliveryHandler handleDelivery (core mode)", () => {
     };
   }
 
+  function clientStub() {
+    return {
+      sendMessage: jest.fn().mockResolvedValue({}),
+      pupPage: {
+        evaluate: jest.fn().mockResolvedValue({
+          ok: true,
+          quoted: true,
+          usedId: "quoted-1",
+        }),
+        isClosed: () => false,
+      },
+    };
+  }
+
   beforeEach(() => {
     jest.clearAllMocks();
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "order-sem-handler-"));
+    process.env.ORDER_SEMANTIC_DEDUP_FILE = path.join(tmpDir, "fp.json");
+    orderSemanticDedup.resetForTests();
     orderIdempotency.tryAcquire.mockReturnValue(true);
     orderIdempotency.isSubmitted.mockReturnValue(false);
     coreApi.createTransaction.mockResolvedValue({
       transactionReference: "TX-1",
       _transactionRef: "TX-1",
     });
+  });
+
+  afterEach(() => {
+    delete process.env.ORDER_SEMANTIC_DEDUP_FILE;
+    fs.rmSync(tmpDir, { recursive: true, force: true });
   });
 
   it("strict 4-line valid message calls createTransaction once", async () => {
@@ -258,5 +288,116 @@ describe("deliveryHandler handleDelivery (core mode)", () => {
     });
 
     expect(coreApi.createTransaction).toHaveBeenCalledTimes(1);
+  });
+
+  it("second identical 4-line order skips Core and replies déjà enregistrée", async () => {
+    const messageText = "670111001\nAcide Glycolique\n5000\nAkwa";
+    const first = msgStub(messageText, "sem-1");
+    const second = msgStub(messageText, "sem-2");
+    const client = clientStub();
+    const config = baseConfig({ AI_DELIVERY_FALLBACK_ENABLED: false });
+
+    await handleDelivery({
+      messageText,
+      msg: first,
+      group: null,
+      agencyId: null,
+      linkedClient,
+      client,
+      config,
+      whatsappGroupId,
+    });
+    await handleDelivery({
+      messageText,
+      msg: second,
+      group: null,
+      agencyId: null,
+      linkedClient,
+      client,
+      config,
+      whatsappGroupId,
+    });
+
+    expect(coreApi.createTransaction).toHaveBeenCalledTimes(1);
+    expect(client.pupPage.evaluate).toHaveBeenCalledWith(
+      expect.any(Function),
+      whatsappGroupId,
+      expect.stringMatching(/déjà sur le dashboard/i),
+      expect.arrayContaining(["sem-2"])
+    );
+    expect(client.pupPage.evaluate.mock.calls[0][2]).toMatch(
+      /ne renvoyez pas le même message/i
+    );
+    expect(client.sendMessage).not.toHaveBeenCalled();
+    expect(second.reply).not.toHaveBeenCalled();
+    expect(orderIdempotency.markSubmitted).toHaveBeenCalledWith(
+      "sem-2",
+      expect.objectContaining({ transactionRef: "TX-1" })
+    );
+  });
+
+  it("same phone and amount with different items still creates two transactions", async () => {
+    const config = baseConfig({ AI_DELIVERY_FALLBACK_ENABLED: false });
+    await handleDelivery({
+      messageText: "670111001\nAcide Glycolique\n5000\nAkwa",
+      msg: msgStub("670111001\nAcide Glycolique\n5000\nAkwa", "items-1"),
+      group: null,
+      agencyId: null,
+      linkedClient,
+      client: {},
+      config,
+      whatsappGroupId,
+    });
+    await handleDelivery({
+      messageText: "670111001\nSavon noir\n5000\nAkwa",
+      msg: msgStub("670111001\nSavon noir\n5000\nAkwa", "items-2"),
+      group: null,
+      agencyId: null,
+      linkedClient,
+      client: {},
+      config,
+      whatsappGroupId,
+    });
+
+    expect(coreApi.createTransaction).toHaveBeenCalledTimes(2);
+  });
+
+  it("disabled semantic dedup allows two identical orders", async () => {
+    const messageText = "670111001\nAcide Glycolique\n5000\nAkwa";
+    const config = baseConfig({
+      AI_DELIVERY_FALLBACK_ENABLED: false,
+      ORDER_SEMANTIC_DEDUP_ENABLED: false,
+    });
+
+    await handleDelivery({
+      messageText,
+      msg: msgStub(messageText, "off-1"),
+      group: null,
+      agencyId: null,
+      linkedClient,
+      client: {},
+      config,
+      whatsappGroupId,
+    });
+    await handleDelivery({
+      messageText,
+      msg: msgStub(messageText, "off-2"),
+      group: null,
+      agencyId: null,
+      linkedClient,
+      client: {},
+      config,
+      whatsappGroupId,
+    });
+
+    expect(coreApi.createTransaction).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe("duplicateOrderReplyText", () => {
+  it("is short and tells the vendor not to resend", () => {
+    expect(duplicateOrderReplyText("145")).toBe(
+      "✅ Commande #145 déjà sur le dashboard.\n\nVérifiez-la, ne renvoyez pas le même message."
+    );
   });
 });

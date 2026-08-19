@@ -186,6 +186,7 @@ Les lignes du milieu sont regroupées comme **description des produits** (un seu
 |-------|----------|
 | **Groupe seulement** | Le bot ignore les messages privés (DM) |
 | **Un message = une commande** | Ne pas coller deux commandes dans le même message |
+| **Ne pas renvoyer la même commande** | Dans les **10 minutes**, un renvoi identique n’est pas recréé : le bot répond que la commande est déjà sur le dashboard et de ne pas renvoyer le même message |
 | **Pas de statut dans le message** | « Livré », « collecté », etc. ne créent pas de commande (voir §11) |
 | **Message du bot ignoré** | Le bot ne traite pas ses propres messages |
 

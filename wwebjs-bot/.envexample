@@ -146,6 +146,11 @@ BOT_ALERT_WEBHOOK_URL=
 # File-backed dedup for whatsapp_message_id (survives PM2 restart)
 # ORDER_IDEMPOTENCY_FILE=data/submitted-message-ids.json
 # ORDER_IDEMPOTENCY_MAX_ENTRIES=5000
+# Same group + phone + amount + items within 10 min → skip Core POST and reply in-thread
+# ORDER_SEMANTIC_DEDUP_ENABLED=true
+# ORDER_SEMANTIC_DEDUP_WINDOW_MS=600000
+# ORDER_SEMANTIC_DEDUP_FILE=data/recent-order-fingerprints.json
+# ORDER_SEMANTIC_DEDUP_MAX_ENTRIES=2000
 # Dead letter JSON when order save fails (inspect/replay on VPS)
 # FAILED_ORDERS_DIR=failed-orders
 # Pause Core API calls after N consecutive 5xx (default 5 failures, 15 min)
