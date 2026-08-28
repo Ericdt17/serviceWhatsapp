@@ -8,6 +8,9 @@ const { generateDailyReport } = require("./lib/daily-report");
 const botAlerts = require("./lib/botAlerts");
 const { startBotHealthServer } = require("./lib/botHealthServer");
 const {
+  reorganizeDeliveryMessageWithAI,
+} = require("./lib/deliveryMessageReorganize");
+const {
   sendDocumentToWhatsapp,
   sendTextToWhatsapp,
 } = require("./lib/botOutboundDocument");
@@ -258,6 +261,8 @@ const healthServerHandle = startBotHealthServer({
     await sendDocumentToWhatsapp(client, payload);
   },
   sendText: async (payload) => sendTextToWhatsapp(client, payload),
+  reorganizeDeliveryMessage: (text) =>
+    reorganizeDeliveryMessageWithAI(text, config),
 });
 
 botAlerts.init({

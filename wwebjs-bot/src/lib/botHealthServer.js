@@ -10,6 +10,7 @@ const {
 
 const INTERNAL_SEND_PATH = "/internal/send-document";
 const INTERNAL_SEND_TEXT_PATH = "/internal/send-text";
+const INTERNAL_REORGANIZE_DELIVERY_PATH = "/internal/reorganize-delivery-message";
 
 function readJsonBody(req, maxBytes = 15 * 1024 * 1024) {
   return new Promise((resolve, reject) => {
@@ -96,15 +97,42 @@ function assertOutboundAllowed(req, res, options) {
 }
 
 /**
+ * Token-only gate for AI/tools that do not send WhatsApp messages.
+ * @returns {boolean} true if the request may continue
+ */
+function assertInternalToken(req, res, internalToken) {
+  const tokenCheck = verifyInternalToken(
+    req.headers["x-bot-internal-token"],
+    internalToken
+  );
+  if (!tokenCheck.ok) {
+    const status = tokenCheck.reason === "not_configured" ? 503 : 401;
+    jsonResponse(res, status, {
+      success: false,
+      error:
+        tokenCheck.reason === "not_configured" ? "not_configured" : "unauthorized",
+      message:
+        tokenCheck.reason === "not_configured"
+          ? "Internal bot token is not configured"
+          : "Invalid or missing X-Bot-Internal-Token",
+    });
+    return false;
+  }
+  return true;
+}
+
+/**
  * Minimal HTTP server for Uptime Kuma / load balancers.
  * GET /health or /metrics → JSON with status + counters.
  * POST /internal/send-document → send PDF to WhatsApp group (backend only).
  * POST /internal/send-text → send plain text to WhatsApp group (backend only).
+ * POST /internal/reorganize-delivery-message → AI reorganize delivery paste (backend only).
  *
  * @param {{
  *   getStatus: () => Promise<object>,
  *   sendDocument?: (payload: { groupId: string, filename: string, pdfBase64: string, caption: string }) => Promise<void>,
  *   sendText?: (payload: { groupId: string, message: string, dryRun: boolean }) => Promise<string|null>,
+ *   reorganizeDeliveryMessage?: (text: string) => Promise<{ ok: boolean, reorganized_text?: string, error?: string, message?: string }>,
  *   internalToken?: string | null,
  *   outboundEnabled?: boolean,
  * }} options
@@ -122,6 +150,7 @@ function startBotHealthServer(options) {
     getStatus,
     sendDocument,
     sendText,
+    reorganizeDeliveryMessage,
     internalToken = null,
     outboundEnabled = true,
   } = options;
@@ -307,6 +336,82 @@ function startBotHealthServer(options) {
     }
   }
 
+  async function handleReorganizeDeliveryMessage(req, res) {
+    if (!assertInternalToken(req, res, internalToken)) {
+      return;
+    }
+
+    if (typeof reorganizeDeliveryMessage !== "function") {
+      jsonResponse(res, 503, {
+        success: false,
+        error: "not_configured",
+        message: "Delivery reorganize handler is not available",
+      });
+      return;
+    }
+
+    let body;
+    try {
+      body = await readJsonBody(req, 64 * 1024);
+    } catch (err) {
+      if (err.message === "payload_too_large") {
+        jsonResponse(res, 413, {
+          success: false,
+          error: "payload_too_large",
+          message: "Text payload exceeds size limit",
+        });
+        return;
+      }
+      jsonResponse(res, 400, {
+        success: false,
+        error: "invalid_json",
+        message: "Request body must be valid JSON",
+      });
+      return;
+    }
+
+    const text = typeof body.text === "string" ? body.text.trim() : "";
+    if (!text) {
+      jsonResponse(res, 400, {
+        success: false,
+        error: "validation_error",
+        message: "text is required",
+      });
+      return;
+    }
+
+    try {
+      const result = await reorganizeDeliveryMessage(text);
+      if (!result?.ok) {
+        const error = result?.error || "reorganize_failed";
+        const status =
+          error === "no_api_key"
+            ? 503
+            : error === "text_too_long" || error === "empty_text"
+              ? 400
+              : 422;
+        jsonResponse(res, status, {
+          success: false,
+          error,
+          message: result?.message || "Failed to reorganize delivery message",
+        });
+        return;
+      }
+
+      jsonResponse(res, 200, {
+        success: true,
+        reorganized_text: result.reorganized_text,
+        via_ai: true,
+      });
+    } catch (err) {
+      jsonResponse(res, 500, {
+        success: false,
+        error: "internal_error",
+        message: err.message || "Failed to reorganize delivery message",
+      });
+    }
+  }
+
   const server = http.createServer(async (req, res) => {
     const path = req.url?.split("?")[0];
 
@@ -326,6 +431,19 @@ function startBotHealthServer(options) {
     if (req.method === "POST" && path === INTERNAL_SEND_TEXT_PATH) {
       try {
         await handleSendText(req, res);
+      } catch (err) {
+        jsonResponse(res, 500, {
+          success: false,
+          error: "internal_error",
+          message: err.message,
+        });
+      }
+      return;
+    }
+
+    if (req.method === "POST" && path === INTERNAL_REORGANIZE_DELIVERY_PATH) {
+      try {
+        await handleReorganizeDeliveryMessage(req, res);
       } catch (err) {
         jsonResponse(res, 500, {
           success: false,
@@ -359,6 +477,9 @@ function startBotHealthServer(options) {
       console.log(
         `[health] Outbound send endpoints http://${host}:${port}${INTERNAL_SEND_PATH} and http://${host}:${port}${INTERNAL_SEND_TEXT_PATH}`
       );
+      console.log(
+        `[health] Delivery reorganize endpoint http://${host}:${port}${INTERNAL_REORGANIZE_DELIVERY_PATH}`
+      );
     }
   });
 
@@ -373,5 +494,6 @@ module.exports = {
   startBotHealthServer,
   INTERNAL_SEND_PATH,
   INTERNAL_SEND_TEXT_PATH,
+  INTERNAL_REORGANIZE_DELIVERY_PATH,
   readJsonBody,
 };
