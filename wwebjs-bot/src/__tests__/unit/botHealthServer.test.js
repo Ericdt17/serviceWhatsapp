@@ -373,4 +373,48 @@ describe("botHealthServer", () => {
     expect(res.body.message_id).toBeNull();
     expect(sendText).not.toHaveBeenCalled();
   });
+
+  it("POST /internal/reorganize-delivery-message returns reorganized text", async () => {
+    process.env.BOT_HEALTH_PORT = "37668";
+    process.env.BOT_HEALTH_BIND = "127.0.0.1";
+    const reorganizeDeliveryMessage = jest.fn().mockResolvedValue({
+      ok: true,
+      reorganized_text: "694397546\nMessassi\nPack homme\n6000",
+    });
+    serverInfo = startBotHealthServer({
+      getStatus: async () => ({ ready: false }),
+      internalToken: "test-secret",
+      reorganizeDeliveryMessage,
+    });
+    await new Promise((resolve) => serverInfo.server.once("listening", resolve));
+
+    const res = await post(
+      "/internal/reorganize-delivery-message",
+      serverInfo.port,
+      { text: "messy paste" },
+      { "X-Bot-Internal-Token": "test-secret" }
+    );
+
+    expect(res.status).toBe(200);
+    expect(res.body.success).toBe(true);
+    expect(res.body.reorganized_text).toContain("694397546");
+    expect(res.body.via_ai).toBe(true);
+    expect(reorganizeDeliveryMessage).toHaveBeenCalledWith("messy paste");
+  });
+
+  it("POST /internal/reorganize-delivery-message returns 401 without token", async () => {
+    process.env.BOT_HEALTH_PORT = "37669";
+    process.env.BOT_HEALTH_BIND = "127.0.0.1";
+    serverInfo = startBotHealthServer({
+      getStatus: async () => ({ ready: true }),
+      internalToken: "test-secret",
+      reorganizeDeliveryMessage: jest.fn(),
+    });
+    await new Promise((resolve) => serverInfo.server.once("listening", resolve));
+
+    const res = await post("/internal/reorganize-delivery-message", serverInfo.port, {
+      text: "hello",
+    });
+    expect(res.status).toBe(401);
+  });
 });
