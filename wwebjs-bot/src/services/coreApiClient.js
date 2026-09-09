@@ -388,6 +388,16 @@ function mapParsedToTransaction(parsed, messageText, packageMatch, schedulingOpt
   const destination_street =
     parsed.quartier || config.CORE_DESTINATION_STREET || "N/A";
 
+  /*
+   * A courier instruction goes to the landmark, never the street.
+   *
+   * Core geocodes destination_street and only displays destination_landmark, so this is what
+   * keeps "appeler le client" visible to the agent without it being sent to Google as an address.
+   */
+  const destination_landmark = parsed.delivery_note
+    ? String(parsed.delivery_note).slice(0, 200)
+    : undefined;
+
   const fields = {
     package_name,
     description,
@@ -395,6 +405,7 @@ function mapParsedToTransaction(parsed, messageText, packageMatch, schedulingOpt
     receiver_phone: parsed.phone ? String(parsed.phone) : "",
     receiver_gender: "Unknown",
     destination_street,
+    ...(destination_landmark ? { destination_landmark } : {}),
     destination_city: config.CORE_DESTINATION_CITY,
     destination_region: config.CORE_DESTINATION_REGION,
     departure_city: config.CORE_DEPARTURE_CITY,

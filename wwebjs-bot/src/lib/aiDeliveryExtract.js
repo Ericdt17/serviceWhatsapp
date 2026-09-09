@@ -8,6 +8,7 @@ const {
 } = require("../parser");
 const {
   normalizeItemsAndQuantity,
+  looksLikeDeliveryInstruction,
   sanitizeDeliveryLocation,
   splitProductParts,
 } = require("./productNormalize");
@@ -20,7 +21,8 @@ OUTPUT (JSON only, no markdown, no commentary):
   "phone": "9-digit Cameroon mobile, digits only, no spaces",
   "product": "item description only",
   "amount": integer FCFA (0 if nothing to collect at delivery),
-  "location": "neighborhood / quartier / landmark / address line, or empty string"
+  "location": "neighborhood / quartier / landmark / address line, or empty string",
+  "delivery_note": "courier instruction when the vendor gave one instead of a place, else empty"
 }
 
 === PHONE ===
@@ -49,6 +51,17 @@ OUTPUT (JSON only, no markdown, no commentary):
 - Quartier, landmark, market, street hint for delivery.
 - Labels: Lieu, Quartier, Adresse, Destination, Vers, Chez.
 - Free text OK: "Carrefour SHO marché central", "Messassi", "Makepe".
+- A location NAMES A PLACE. If the line instead tells the courier what to DO —
+  "appeler le client", "il va vous donner sa position", "je suis à ...",
+  "contacter avant de venir" — that is NOT a location.
+  Put it in "delivery_note" and leave "location" as "".
+- Never invent a place from an instruction. An empty location is correct and useful;
+  a guessed one sends a driver to the wrong side of the city.
+
+=== DELIVERY NOTE ===
+- Anything the courier must do rather than anywhere they must go.
+- Typically: call the customer, wait for a shared pin, ask at reception.
+- Empty string when the vendor gave a real place.
 
 === FORMATS ===
 A) Strict 4-line: phone / product / amount / quartier
@@ -64,7 +77,7 @@ Lieu : messassi
 Montant : 6000fr
 Un pack : homme
 Output:
-{"phone":"694397546","product":"Pack homme","amount":6000,"location":"Messassi"}
+{"phone":"694397546","product":"Pack homme","amount":6000,"location":"Messassi","delivery_note":""}
 
 Input:
 690829269
@@ -72,7 +85,7 @@ Input:
 0
 Carrefour SHO marché central
 Output:
-{"phone":"690829269","product":"01 Savon BOASUN","amount":0,"location":"Carrefour SHO marché central"}
+{"phone":"690829269","product":"01 Savon BOASUN","amount":0,"location":"Carrefour SHO marché central","delivery_note":""}
 
 Input:
 Bessengue
@@ -81,12 +94,20 @@ Ceinture cuir
 14k
 651073574
 Output:
-{"phone":"651073574","product":"Chaussures Nike taille 42, Ceinture cuir","amount":14000,"location":"Bessengue"}
+{"phone":"651073574","product":"Chaussures Nike taille 42, Ceinture cuir","amount":14000,"location":"Bessengue","delivery_note":""}
 
 Input:
 Livraison 612345678 client 15k vers makepe stp 2 sacs riz
 Output:
-{"phone":"612345678","product":"2 sacs riz","amount":15000,"location":"Makepe"}
+{"phone":"612345678","product":"2 sacs riz","amount":15000,"location":"Makepe","delivery_note":""}
+
+Input:
+694397546
+1 montre
+8000
+Appeler le client il va vous donner sa position
+Output:
+{"phone":"694397546","product":"1 montre","amount":8000,"location":"","delivery_note":"Appeler le client il va vous donner sa position"}
 
 Input:
 Tel 699000001
@@ -95,7 +116,7 @@ Livraison 500fr
 Prix 12000
 Akwa
 Output:
-{"phone":"699000001","product":"2 robes","amount":12000,"location":"Akwa"}
+{"phone":"699000001","product":"2 robes","amount":12000,"location":"Akwa","delivery_note":""}
 
 === RULES ===
 - Extract only what is IN the message. Do not invent fields.
@@ -233,11 +254,26 @@ function validateAndNormalizeAiDelivery(modelObj, originalText) {
     { productLines }
   );
 
+  /*
+   * What the courier must DO, when the vendor wrote that instead of where to go.
+   *
+   * Taken from the model when it classified one, and otherwise recovered from the raw text —
+   * the model is not reliable enough to be the only check, and the failure is expensive. An
+   * instruction left in the address field gets geocoded: Google's address index answers
+   * "Appeler pour la destination..." with a confident rooftop plus code, so the parcel lands on
+   * a precise-looking coordinate somewhere arbitrary and drags the zone's ordering with it.
+   */
+  const modelNote =
+    modelObj.delivery_note != null ? String(modelObj.delivery_note).trim() : "";
+  const noteFromText = looksLikeDeliveryInstruction(text) ? String(text).trim() : "";
+  const delivery_note = modelNote || (quartier ? "" : noteFromText) || null;
+
   return {
     phone,
     items: displayItems,
     amount_due,
     quartier: quartier || null,
+    delivery_note,
     carrier: null,
   };
 }

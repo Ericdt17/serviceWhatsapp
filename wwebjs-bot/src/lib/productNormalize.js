@@ -58,6 +58,38 @@ function isPriceLikeLocation(loc) {
   return false;
 }
 
+/**
+ * Text that tells the courier what to DO, not where to go.
+ *
+ * <p>Vendors routinely write "appeler le client il va vous donner sa position" in the address
+ * slot. That is a delivery instruction, and treating it as a place is worse than having no place
+ * at all: Google's address index answers it with a confident rooftop plus code, so the parcel gets
+ * a precise-looking coordinate somewhere arbitrary and drags the whole zone's ordering with it.
+ * Its place index, asked the same string, correctly returns nothing.
+ *
+ * <p>Matched on verbs and phrasings rather than a keyword list, because the giveaway is that the
+ * line addresses a person ("call him", "he will send it") instead of naming somewhere.
+ */
+const INSTRUCTION_PATTERNS = [
+  /\b(?:appel(?:er|ez|é|e)?|call|contact(?:er|ez)?|joindre|joignez)\b/i,
+  /\b(?:il|elle|le client|la cliente|the client)\s+(?:va|vous|te|nous|will)\b/i,
+  /\b(?:donner(?:a)?|envoy(?:er|era)|indiquer(?:a)?|pr[ée]cis(?:er|era))\s+(?:sa|la|le|son)\b/i,
+  /\b(?:position|localisation|location)\s+(?:exacte|par|via|sur)\b/i,
+  /\b(?:je suis|nous sommes|i am|we are)\b/i,
+  /\bde la part de\b/i,
+  /\bd[èe]s (?:son|leur) arriv[ée]e\b/i,
+];
+
+/** True when the line reads as an instruction to the courier rather than a destination. */
+function looksLikeDeliveryInstruction(text) {
+  const s = String(text || "").trim();
+  if (!s) return false;
+  // A short line naming a place can contain a verb by coincidence; instructions are sentences.
+  const wordCount = s.split(/\s+/).length;
+  if (wordCount < 3) return false;
+  return INSTRUCTION_PATTERNS.some((re) => re.test(s));
+}
+
 function lineLooksLikePhone(line) {
   const digits = String(line || "").replace(/\D/g, "");
   if (/^[627]\d{7,8}$/.test(digits)) {
@@ -187,6 +219,10 @@ function extractLocationLineFromMessage(text, options = {}) {
     if (shouldSkipLocationLine(line)) {
       continue;
     }
+    // Otherwise the fallback picks up the very instruction the model was refused for.
+    if (looksLikeDeliveryInstruction(line)) {
+      continue;
+    }
     if (lineLooksLikePhone(line)) {
       continue;
     }
@@ -222,7 +258,11 @@ function sanitizeDeliveryLocation(modelLocation, originalText, options = {}) {
   }
 
   const fromLabel = extractLabeledLocation(originalText);
-  if (fromLabel && !lineLooksLikeProduct(fromLabel, productLines)) {
+  if (
+    fromLabel &&
+    !lineLooksLikeProduct(fromLabel, productLines) &&
+    !looksLikeDeliveryInstruction(fromLabel)
+  ) {
     return isKnownQuartier(fromLabel)
       ? extractKnownQuartier(fromLabel) || fromLabel
       : fromLabel;
@@ -232,7 +272,8 @@ function sanitizeDeliveryLocation(modelLocation, originalText, options = {}) {
   if (
     modelLoc &&
     !isPriceLikeLocation(modelLoc) &&
-    !lineLooksLikeProduct(modelLoc, productLines)
+    !lineLooksLikeProduct(modelLoc, productLines) &&
+    !looksLikeDeliveryInstruction(modelLoc)
   ) {
     if (isKnownQuartier(modelLoc)) {
       return extractKnownQuartier(modelLoc) || modelLoc;
@@ -247,6 +288,7 @@ module.exports = {
   splitProductParts,
   normalizeItemsAndQuantity,
   isPriceLikeLocation,
+  looksLikeDeliveryInstruction,
   lineLooksLikeProduct,
   sanitizeDeliveryLocation,
   extractLocationLineFromMessage,
