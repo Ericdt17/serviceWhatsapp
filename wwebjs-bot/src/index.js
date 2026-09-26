@@ -11,9 +11,23 @@ const {
   reorganizeDeliveryMessageWithAI,
 } = require("./lib/deliveryMessageReorganize");
 const {
+  draftIssueFromNotes: draftIssueFromNotesWithAI,
+  polishIssueReport: polishIssueReportWithAI,
+  polishIssueRejectionReason: polishIssueRejectionReasonWithAI,
+} = require("./lib/issueAiAssist");
+const {
   sendDocumentToWhatsapp,
   sendTextToWhatsapp,
 } = require("./lib/botOutboundDocument");
+const {
+  sendDocumentDmToWhatsapp,
+} = require("./lib/botOutboundDocumentDm");
+const {
+  sendTextDmToWhatsapp,
+} = require("./lib/botOutboundTextDm");
+const {
+  sendIssueReminder: sendIssueReminderToWhatsapp,
+} = require("./lib/issueReminderSend");
 const {
   isShuttingDown,
   registerGracefulShutdown,
@@ -260,9 +274,17 @@ const healthServerHandle = startBotHealthServer({
   sendDocument: async (payload) => {
     await sendDocumentToWhatsapp(client, payload);
   },
+  sendDocumentDm: async (payload) =>
+    sendDocumentDmToWhatsapp(client, payload),
+  sendTextDm: async (payload) => sendTextDmToWhatsapp(client, payload),
   sendText: async (payload) => sendTextToWhatsapp(client, payload),
+  sendIssueReminder: async (payload) =>
+    sendIssueReminderToWhatsapp(client, payload),
   reorganizeDeliveryMessage: (text) =>
     reorganizeDeliveryMessageWithAI(text, config),
+  draftIssueFromNotes: (text) => draftIssueFromNotesWithAI(text, config),
+  polishIssueReport: (text) => polishIssueReportWithAI(text, config),
+  polishIssueRejectionReason: (text) => polishIssueRejectionReasonWithAI(text, config),
 });
 
 botAlerts.init({

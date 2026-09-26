@@ -1,7 +1,10 @@
-# Nginx — WhatsApp bot health check (Uptime Kuma / public probe)
+# Nginx — WhatsApp bot (health probe + internal outbound from backend_core)
 # Copy to: /etc/nginx/sites-available/bot-health.livsight.com
 # Then: sudo ln -s ... sites-enabled/ && sudo nginx -t && sudo systemctl reload nginx
 # SSL: sudo certbot --nginx -d bot-health.livsight.com
+#
+# If certbot created a separate `listen 443 ssl` server block, duplicate the
+# `location` blocks below into that block as well (or use one file included twice).
 
 server {
     listen 80;
@@ -12,6 +15,56 @@ server {
         proxy_http_version 1.1;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
+    }
+
+    # backend_core / saasDelivery → bot (header X-Bot-Internal-Token required)
+    location /internal/send-document {
+        proxy_pass http://127.0.0.1:3099/internal/send-document;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_read_timeout 60s;
+    }
+
+    location /internal/send-document-dm {
+        proxy_pass http://127.0.0.1:3099/internal/send-document-dm;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_read_timeout 60s;
+        client_max_body_size 20m;
+    }
+
+    location /internal/send-text-dm {
+        proxy_pass http://127.0.0.1:3099/internal/send-text-dm;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_read_timeout 60s;
+    }
+
+    location /internal/send-text {
+        proxy_pass http://127.0.0.1:3099/internal/send-text;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_read_timeout 60s;
+    }
+
+    location /internal/issue-reminders/send {
+        proxy_pass http://127.0.0.1:3099/internal/issue-reminders/send;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_read_timeout 60s;
+    }
+
+    location /internal/reorganize-delivery-message {
+        proxy_pass http://127.0.0.1:3099/internal/reorganize-delivery-message;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_read_timeout 60s;
     }
 
     location = / {

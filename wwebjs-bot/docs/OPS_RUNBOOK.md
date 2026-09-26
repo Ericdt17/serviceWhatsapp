@@ -82,8 +82,14 @@ Internal HTTP on the health server (`BOT_HEALTH_PORT`, default `3099`). Auth: he
 
 | Endpoint | Purpose |
 |----------|---------|
-| `POST /internal/send-document` | PDF relevé (existing) |
+| `POST /internal/send-document` | PDF relevé to **group** `@g.us` (existing) |
+| `POST /internal/send-document-dm` | PDF DM to **phone** (`@c.us` / LID) — e.g. HR payslips |
+| `POST /internal/send-text-dm` | Text DM to **phone** — e.g. payslip download link |
 | `POST /internal/send-text` | Plain text to **one** group (broadcast orchestration is on Spring) |
+| `POST /internal/issue-reminders/send` | Issue reminder DM to assignee phone (`@c.us`) |
+| `POST /internal/reorganize-delivery-message` | Réorganiser un message livraison collé (OpenAI, admin/agent) |
+
+**Nginx (si `WHATSAPP_BOT_BASE_URL=https://bot-health.livsight.com`)** — ajouter le proxy pour **chaque** route `/internal/*` (voir [deploy/nginx-bot-health.conf.example](../deploy/nginx-bot-health.conf.example)). Sans cela, le core reçoit une **404 nginx** → dashboard : « Le bot a refusé la réorganisation du message ».
 
 **Send text — success**
 
@@ -103,6 +109,24 @@ Optional: `"dry_run": true` validates only (no WhatsApp send); `message_id` is `
 
 **Body rules:** `whatsapp_group_id` must end with `@g.us`; `message` required, max **4000** characters.
 
+**Send document DM (payslip / private PDF) — success**
+
+```bash
+curl -sS -X POST "http://127.0.0.1:3099/internal/send-document-dm" \
+  -H "Content-Type: application/json" \
+  -H "X-Bot-Internal-Token: $BOT_INTERNAL_TOKEN" \
+  -d '{
+    "recipient_phone": "693663641",
+    "filename": "bulletin_paie.pdf",
+    "pdf_base64": "<base64 PDF>",
+    "caption": "Bulletin de paie — septembre 2026"
+  }'
+```
+
+Expect `200`: `{ "success": true, "sent": true, "recipient": "237…@c.us", "filename": "…", "message_id": "…" }`.
+
+**Body rules:** `recipient_phone` required (digits; local CM 9-digit mobiles get `237` prefix); `filename` must end with `.pdf`; `pdf_base64` required; `caption` optional, max **1024**.
+
 **Errors (same style as send-document)**
 
 | Status | When |
@@ -112,6 +136,44 @@ Optional: `"dry_run": true` validates only (no WhatsApp send); `message_id` is `
 | 503 | Bot not ready — `"WhatsApp client is not ready"` |
 | 502 | WhatsApp send failed (`send_failed`) |
 
+**Issue reminder DM — success**
+
+Core schedules reminders and calls the bot with an assignee phone. The bot formats French copy and DMs `@c.us`. Scheduling / status re-check stay on Core.
+
+```bash
+curl -sS -X POST "http://127.0.0.1:3099/internal/issue-reminders/send" \
+  -H "Content-Type: application/json" \
+  -H "X-Bot-Internal-Token: $BOT_INTERNAL_TOKEN" \
+  -d '{
+    "issueId": 1,
+    "type": "created",
+    "recipientPhone": "+237690123456",
+    "title": "Faire l inventaire du stock",
+    "description": "Comptage entrepôt",
+    "priority": "high",
+    "dueDate": "2026-09-26T18:00:00+01:00",
+    "assignedBy": "Eric",
+    "idempotencyKey": "issue:1:created:v1"
+  }'
+```
+
+Expect `200`: `{ "success": true, "sent": true, "issueId": 1, "type": "created", "recipient": "…@c.us", "message_id": "…" }`.
+
+`type`: `created` | `reassigned` | `due_24h` | `due_3h` | `due_now` | `overdue_2h` | `overdue_repeat` | `resolved_review` | `report_rejected` | `closed`.  
+`idempotencyKey` required — opaque string from Core (may include a datetime like `2026-09-26T15:30`); same key twice → `409` `{ "error": "duplicate" }`.  
+`dueDate` optional ISO **offset datetime** (e.g. `2026-09-26T15:30:00+01:00`); DMs show full date + time in `TIME_ZONE`. Date-only legacy values may appear as `…T18:00`.  
+`reason` required for `report_rejected` (admin rejection text).  
+`resolved_review` → admins (title + person in charge); `report_rejected` / `closed` → assignee with title (agents may juggle several issues).  
+Optional `"dry_run": true` validates/formats only. Description has no max from Core; WhatsApp display soft-truncates.
+
+| Status | When |
+|--------|------|
+| 401 | Missing/invalid token |
+| 400 | Validation |
+| 409 | Duplicate `idempotencyKey` |
+| 503 | Bot not ready |
+| 502 | WhatsApp send failed |
+
 ```bash
 # Empty message → 400
 curl -sS -X POST "http://127.0.0.1:3099/internal/send-text" \
@@ -119,6 +181,34 @@ curl -sS -X POST "http://127.0.0.1:3099/internal/send-text" \
   -H "X-Bot-Internal-Token: $BOT_INTERNAL_TOKEN" \
   -d '{"whatsapp_group_id":"120363424985037911@g.us","message":"   "}'
 ```
+
+**Reorganize delivery paste (IA) — success**
+
+```bash
+curl -sS -X POST "http://127.0.0.1:3099/internal/reorganize-delivery-message" \
+  -H "Content-Type: application/json" \
+  -H "X-Bot-Internal-Token: $BOT_INTERNAL_TOKEN" \
+  -d '{"text":"675403331 bastos crème 9500"}'
+```
+
+Expect `200`: `{ "success": true, "reorganized_text": "…", "via_ai": true }`.
+
+Via nginx public (après ajout de la location) :
+
+```bash
+curl -sS -X POST "https://bot-health.livsight.com/internal/reorganize-delivery-message" \
+  -H "Content-Type: application/json" \
+  -H "X-Bot-Internal-Token: $BOT_INTERNAL_TOKEN" \
+  -d '{"text":"675403331 bastos crème 9500"}'
+```
+
+| Status | When |
+|--------|------|
+| 401 | Missing/invalid `X-Bot-Internal-Token` |
+| 400 | Empty / invalid `text` |
+| 422 | OpenAI could not extract phone or amount |
+| 503 | `OPENAI_API_KEY` missing on bot |
+| 404 (nginx HTML) | Location nginx manquante — voir exemple deploy |
 
 ---
 
