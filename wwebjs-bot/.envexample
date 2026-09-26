@@ -176,12 +176,19 @@ BOT_HEALTH_BIND=127.0.0.1
 # PM2_APP_NAME=whatsapp-bot-core
 # BOT_WATCHDOG_DRY_RUN=0
 
-# Outbound send — backend_core calls these with the same token:
-#   POST /internal/send-document  (PDF relevés)
-#   POST /internal/send-text      (annonces / broadcast 1 groupe)
-# Generate a long random secret; must match WHATSAPP_BOT_INTERNAL_TOKEN on core VPS
+# Outbound send — backend_core / saasDelivery call these with the same token:
+#   POST /internal/send-document              (PDF relevés → group @g.us)
+#   POST /internal/send-document-dm           (PDF DM → phone; e.g. HR payslips)
+#   POST /internal/send-text-dm               (text DM → phone; e.g. payslip download link)
+#   POST /internal/send-text                  (annonces / broadcast 1 groupe)
+#   POST /internal/issue-reminders/send       (rappels Issues → DM assignee)
+#   POST /internal/reorganize-delivery-message (réorganiser message livraison IA)
+# Generate a long random secret; must match WHATSAPP_BOT_INTERNAL_TOKEN on core / saasDelivery
 # BOT_INTERNAL_TOKEN=change-me-long-random-secret
 # BOT_OUTBOUND_ENABLED=true
+# File-backed dedup for issue reminder idempotencyKey (survives PM2 restart)
+# ISSUE_REMINDER_IDEMPOTENCY_FILE=data/issue-reminder-ids.json
+# ISSUE_REMINDER_IDEMPOTENCY_MAX_ENTRIES=5000
 # See docs/OPS_RUNBOOK.md — section "Outbound WhatsApp (backend → bot)"
 
 # ---------------------------
