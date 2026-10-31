@@ -33,6 +33,10 @@ module.exports = {
     const n = parseInt(process.env.SCHEDULED_DELIVERY_CUTOFF_HOUR || "18", 10);
     return Number.isFinite(n) && n >= 0 && n <= 23 ? n : 18;
   })(),
+  // Same switch as backend SCHEDULING_ENFORCE_DELIVERY_DAY. false: skip the
+  // evening cutoff so a local order stays on today instead of Planifiée.
+  SCHEDULING_ENFORCE_DELIVERY_DAY:
+    process.env.SCHEDULING_ENFORCE_DELIVERY_DAY !== "false",
 
   // OpenAI fallback when strict parse fails but message looks like a delivery (see looksLikeMalformedDelivery)
   // OPENAI_API_KEY: required when AI_DELIVERY_FALLBACK_ENABLED=true

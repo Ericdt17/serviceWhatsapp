@@ -360,8 +360,25 @@ describe("coreApiClient auth retry", () => {
       { phone: "699000005", items: "robes", amount_due: 12000, quartier: "Akwa" },
       "699000005\n2 robes\n12000\nAkwa",
       { source: "pickup", package_name: "robes", quantity: 2 },
-      { messageTimestampSec: Math.floor(new Date("2026-07-11T17:30:00Z").getTime() / 1000) }
+      {
+        messageTimestampSec: Math.floor(new Date("2026-07-11T17:30:00Z").getTime() / 1000),
+        enforceDeliveryDay: true,
+      }
     );
     expect(fields.scheduled_delivery_date).toBe("2026-07-12");
+  });
+
+  it("mapParsedToTransaction stays on today after cutoff when delivery day is not enforced", () => {
+    const { mapParsedToTransaction } = require("../../services/coreApiClient");
+    const fields = mapParsedToTransaction(
+      { phone: "699000006", items: "robes", amount_due: 12000, quartier: "Akwa" },
+      "699000006\n2 robes\n12000\nAkwa",
+      { source: "pickup", package_name: "robes", quantity: 2 },
+      {
+        messageTimestampSec: Math.floor(new Date("2026-07-11T17:30:00Z").getTime() / 1000),
+        enforceDeliveryDay: false,
+      }
+    );
+    expect(fields.scheduled_delivery_date).toBe("2026-07-11");
   });
 });

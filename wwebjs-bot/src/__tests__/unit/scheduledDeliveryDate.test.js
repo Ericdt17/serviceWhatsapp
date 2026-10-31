@@ -20,6 +20,28 @@ describe("resolveScheduledDeliveryDate", () => {
     expect(date).toBe("2026-07-11");
   });
 
+  it("stays on today after cutoff when delivery day is not enforced", () => {
+    const date = resolveScheduledDeliveryDate({
+      messageText: "699000001\n2 robes\n12000\nAkwa",
+      messageTimestampSec: ts("2026-07-11T17:00:00Z"), // 18:00 Douala
+      timezone: TZ,
+      cutoffHour: 18,
+      enforceDeliveryDay: false,
+    });
+    expect(date).toBe("2026-07-11");
+  });
+
+  it("still honors demain when delivery day is not enforced", () => {
+    const date = resolveScheduledDeliveryDate({
+      messageText: "699000001\n2 robes\n12000\nAkwa\npour demain",
+      messageTimestampSec: ts("2026-07-11T17:00:00Z"), // 18:00 Douala
+      timezone: TZ,
+      cutoffHour: 18,
+      enforceDeliveryDay: false,
+    });
+    expect(date).toBe("2026-07-12");
+  });
+
   it("returns tomorrow when message is at or after cutoff hour", () => {
     const date = resolveScheduledDeliveryDate({
       messageText: "699000001\n2 robes\n12000\nAkwa",
