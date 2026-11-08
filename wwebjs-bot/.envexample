@@ -60,6 +60,8 @@ NODE_ENV=development
 TIME_ZONE=Africa/Douala
 # Orders at or after this hour (local) default to next-day delivery (default 18)
 SCHEDULED_DELIVERY_CUTOFF_HOUR=18
+# Same as backend SCHEDULING_ENFORCE_DELIVERY_DAY. false skips the cutoff (local tests).
+# SCHEDULING_ENFORCE_DELIVERY_DAY=false
 ALLOWED_ORIGINS=http://localhost:5173
 
 # ---------------------------
@@ -183,6 +185,9 @@ BOT_HEALTH_BIND=127.0.0.1
 #   POST /internal/send-text                  (annonces / broadcast 1 groupe)
 #   POST /internal/issue-reminders/send       (rappels Issues → DM assignee)
 #   POST /internal/reorganize-delivery-message (réorganiser message livraison IA)
+#   POST /internal/draft-issue-from-notes      (brouillon tâche IA)
+#   POST /internal/polish-issue-report         (améliorer rapport mission IA)
+#   POST /internal/polish-issue-rejection-reason (améliorer motif rejet IA)
 # Generate a long random secret; must match WHATSAPP_BOT_INTERNAL_TOKEN on core / saasDelivery
 # BOT_INTERNAL_TOKEN=change-me-long-random-secret
 # BOT_OUTBOUND_ENABLED=true

@@ -88,8 +88,11 @@ Internal HTTP on the health server (`BOT_HEALTH_PORT`, default `3099`). Auth: he
 | `POST /internal/send-text` | Plain text to **one** group (broadcast orchestration is on Spring) |
 | `POST /internal/issue-reminders/send` | Issue reminder DM to assignee phone (`@c.us`) |
 | `POST /internal/reorganize-delivery-message` | Réorganiser un message livraison collé (OpenAI, admin/agent) |
+| `POST /internal/draft-issue-from-notes` | Brouillon tâche (titre + description) depuis notes brutes |
+| `POST /internal/polish-issue-report` | Améliorer un rapport de mission |
+| `POST /internal/polish-issue-rejection-reason` | Améliorer un motif de rejet de rapport |
 
-**Nginx (si `WHATSAPP_BOT_BASE_URL=https://bot-health.livsight.com`)** — ajouter le proxy pour **chaque** route `/internal/*` (voir [deploy/nginx-bot-health.conf.example](../deploy/nginx-bot-health.conf.example)). Sans cela, le core reçoit une **404 nginx** → dashboard : « Le bot a refusé la réorganisation du message ».
+**Nginx (si `WHATSAPP_BOT_BASE_URL=https://bot-health.livsight.com`)** — ajouter le proxy pour **chaque** route `/internal/*` (voir [deploy/nginx-bot-health.conf.example](../deploy/nginx-bot-health.conf.example)). Sans cela, le core reçoit une **404 nginx** → dashboard / app agent : « Assistance IA indisponible » / « Le bot a refusé… ». Les routes **Issue AI** (`draft-issue-from-notes`, `polish-issue-report`, `polish-issue-rejection-reason`) doivent être présentes sur le VPS prod.
 
 **Send text — success**
 
@@ -209,6 +212,46 @@ curl -sS -X POST "https://bot-health.livsight.com/internal/reorganize-delivery-m
 | 422 | OpenAI could not extract phone or amount |
 | 503 | `OPENAI_API_KEY` missing on bot |
 | 404 (nginx HTML) | Location nginx manquante — voir exemple deploy |
+
+**Issue AI assist (Mes tâches) — success**
+
+Body: `{ "text": "…" }` for all three. Expect `200` with `success: true`.
+
+```bash
+# Brouillon tâche → { title, description }
+curl -sS -X POST "http://127.0.0.1:3099/internal/draft-issue-from-notes" \
+  -H "Content-Type: application/json" \
+  -H "X-Bot-Internal-Token: $BOT_INTERNAL_TOKEN" \
+  -d '{"text":"inventaire stock entrepot avant lundi"}'
+
+# Rapport mission → { report }
+curl -sS -X POST "http://127.0.0.1:3099/internal/polish-issue-report" \
+  -H "Content-Type: application/json" \
+  -H "X-Bot-Internal-Token: $BOT_INTERNAL_TOKEN" \
+  -d '{"text":"jai fait le comptage ok 12 cartons"}'
+
+# Motif rejet → { reason }
+curl -sS -X POST "http://127.0.0.1:3099/internal/polish-issue-rejection-reason" \
+  -H "Content-Type: application/json" \
+  -H "X-Bot-Internal-Token: $BOT_INTERNAL_TOKEN" \
+  -d '{"text":"photos floues refaire"}'
+```
+
+Via nginx (après ajout des 3 locations) :
+
+```bash
+curl -sS -X POST "https://bot-health.livsight.com/internal/draft-issue-from-notes" \
+  -H "Content-Type: application/json" \
+  -H "X-Bot-Internal-Token: $BOT_INTERNAL_TOKEN" \
+  -d '{"text":"inventaire stock entrepot avant lundi"}'
+```
+
+| Status | When |
+|--------|------|
+| 401 | Missing/invalid token |
+| 400 | Empty / invalid `text` |
+| 503 | `OPENAI_API_KEY` missing / handler unavailable |
+| 404 (nginx HTML) | Location nginx manquante — coller les 3 blocs depuis [nginx-bot-health.conf.example](../deploy/nginx-bot-health.conf.example) |
 
 ---
 

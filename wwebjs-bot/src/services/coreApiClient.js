@@ -444,6 +444,9 @@ function mapParsedToTransaction(parsed, messageText, packageMatch, schedulingOpt
     timezone: schedulingOptions.timezone || config.TIME_ZONE,
     cutoffHour:
       schedulingOptions.cutoffHour ?? config.SCHEDULED_DELIVERY_CUTOFF_HOUR,
+    enforceDeliveryDay:
+      schedulingOptions.enforceDeliveryDay ??
+      config.SCHEDULING_ENFORCE_DELIVERY_DAY,
   });
 
   return fields;

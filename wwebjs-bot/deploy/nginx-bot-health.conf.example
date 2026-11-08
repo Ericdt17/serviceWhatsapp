@@ -67,6 +67,31 @@ server {
         proxy_read_timeout 60s;
     }
 
+    # Issue AI assist (gateway → bot → OpenAI) — agent/admin Mes tâches
+    location /internal/draft-issue-from-notes {
+        proxy_pass http://127.0.0.1:3099/internal/draft-issue-from-notes;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_read_timeout 60s;
+    }
+
+    location /internal/polish-issue-report {
+        proxy_pass http://127.0.0.1:3099/internal/polish-issue-report;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_read_timeout 60s;
+    }
+
+    location /internal/polish-issue-rejection-reason {
+        proxy_pass http://127.0.0.1:3099/internal/polish-issue-rejection-reason;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_read_timeout 60s;
+    }
+
     location = / {
         return 404;
     }

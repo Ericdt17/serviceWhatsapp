@@ -1,0 +1,56 @@
+---
+description: Standard GitHub pull request title and body when the user asks to open a PR
+alwaysApply: true
+---
+
+# Pull requests (standard)
+
+When the user asks to create a pull request, use `gh` and follow this format. Do not open a PR unless asked.
+
+## Before opening
+
+1. Ensure the branch is pushed (`git push -u origin HEAD` if needed).
+2. Base branch: `main` unless the user specifies otherwise.
+3. Title uses **Conventional Commits** (same types/scopes as commit messages):  
+   `feat(bot): …`, `fix(parser): …`, `docs: …`
+
+## Body template (required)
+
+Pass the body via HEREDOC:
+
+```bash
+gh pr create --base main --title "<conventional title>" --body "$(cat <<'EOF'
+## Summary
+- <1–3 bullets: what changed and why>
+
+## Test plan
+- [ ] <concrete verification step>
+- [ ] <another step if needed>
+
+EOF
+)"
+```
+
+## Rules
+
+- Summary focuses on **why** / user impact, not a file dump.
+- Test plan is a checklist the reviewer can actually run (unit tests, curl, smoke, manual WA check when relevant).
+- Do not include secrets, `.env` values, or tokens in the PR body.
+- Return the PR URL when done.
+- Do not push or open a PR unless the user explicitly asked.
+
+## Example
+
+**Title:** `feat(bot): add internal DM endpoints and issue reminder transport`
+
+**Body:**
+```markdown
+## Summary
+- Expose `/internal/send-text-dm` and `/internal/send-document-dm` for Core/saasDelivery
+- Add idempotent issue reminder sending via the health server
+
+## Test plan
+- [ ] `npx jest src/__tests__/unit/botOutboundTextDm.test.js`
+- [ ] `npx jest src/__tests__/unit/botHealthServer.test.js`
+- [ ] On bot VPS after deploy: curl dry-run `POST /internal/send-text-dm` with valid token
+```

@@ -75,7 +75,7 @@ function parseExplicitDateFromText(messageText, referenceIsoDate, timezone) {
  * 1. "aujourd'hui" → today
  * 2. "demain" / "lendemain" → tomorrow
  * 3. Explicit DD/MM[/YYYY] in message
- * 4. Message hour >= cutoffHour → tomorrow
+ * 4. Message hour >= cutoffHour → tomorrow, unless enforceDeliveryDay is false
  * 5. Default → today
  */
 function resolveScheduledDeliveryDate({
@@ -83,6 +83,7 @@ function resolveScheduledDeliveryDate({
   messageTimestampSec,
   timezone = "Africa/Douala",
   cutoffHour = 18,
+  enforceDeliveryDay = true,
   now = new Date(),
 } = {}) {
   const refInstant =
@@ -107,7 +108,7 @@ function resolveScheduledDeliveryDate({
   }
 
   const hour = getHourInTz(refInstant, timezone);
-  if (Number.isFinite(cutoffHour) && hour >= cutoffHour) {
+  if (enforceDeliveryDay && Number.isFinite(cutoffHour) && hour >= cutoffHour) {
     return tomorrow;
   }
 

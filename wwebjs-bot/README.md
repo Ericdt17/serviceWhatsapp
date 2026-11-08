@@ -87,6 +87,7 @@ Copy [.envexample](.envexample). Important variables:
 | `CLIENT_ID` | Session folder isolation (never share across envs) |
 | `GROUP_ID` | Optional: only process one group |
 | `SCHEDULED_DELIVERY_CUTOFF_HOUR` | Default `18` (Africa/Douala) → next-day date after cutoff |
+| `SCHEDULING_ENFORCE_DELIVERY_DAY` | Same as backend. `false` keeps evening orders on today |
 | `BOT_HEALTH_PORT` / `BOT_HEALTH_BIND` | Default `3099` / `127.0.0.1` |
 | `BOT_ALERT_WEBHOOK_URL` | Discord ops alerts |
 | `AI_DELIVERY_FALLBACK_ENABLED` / `OPENAI_API_KEY` | Messy-line parse fallback |
