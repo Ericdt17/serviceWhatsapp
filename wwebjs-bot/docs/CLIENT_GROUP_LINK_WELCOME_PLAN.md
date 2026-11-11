@@ -10,7 +10,7 @@ and adds a professional French welcome that encourages clients to download the L
 **Scope:** `#link` reply copy + configurable store URL env vars only — trigger and command
 behavior stay as today  
 **Last updated:** 2026-11-11  
-**Current phase:** 0 Done · next: Phase 1 (human must explicitly start)
+**Current phase:** 1 Done · next: Phase 2 (human must explicitly start)
 
 ---
 
@@ -172,7 +172,7 @@ Story → Linear map: US-1 → preserve ID/name + AC; US-2 → welcome task; US-
 | Phase | Name | Status | Owner / agent | Completed |
 |---|---|---|---|---|
 | 0 | Preconditions & Linear gate | Done (branch + plan) | Cursor | 2026-11-11 |
-| 1 | Locate `#link` reply + document current message | Not started | — | — |
+| 1 | Locate `#link` reply + document current message | Done | Cursor | 2026-11-11 |
 | 2 | Message builder + store URL env (TDD) | Not started | — | — |
 | 3 | Wire `#link` to new reply + unit tests | Not started | — | — |
 | 4 | Local / smoke verification of `#link` | Not started | — | — |
@@ -205,6 +205,38 @@ Source: LIV-14 description tasks. Phase **Done** means the mapped open boxes may
 | Clients receive clear instructions for obtaining credentials | 2–3 |
 | Response is sent automatically after successful group creation / `#link` | 3 (same trigger as today) |
 | Existing group creation functionality remains unaffected | 3–4 |
+
+---
+
+## Context snapshot (Phase 1 — 2026-11-11)
+
+| Piece | Role today | LIV-14 relevance |
+|---|---|---|
+| `handlers/messageHandler.js` `onMessage` | Detects `#link` / `link` (normalized); group-only | **Keep trigger**; change reply text only |
+| DM `#link` | `msg.reply` — use the client *groupe*, not DM | Unchanged |
+| `sendLinkMessage(client, whatsappGroupId, groupName)` | Builds reply + 3-method send fallback | Swap `text` only; keep send chain |
+| Group ID | `resolveWhatsappGroupId(msg, chat, chatId)` | Must remain in reply |
+| Group name | `groupName` already passed into `sendLinkMessage` | Must remain in reply |
+| Store URL envs | **None** in `.envexample` | Add `LIVSIGHT_ANDROID_STORE_URL` / `LIVSIGHT_IOS_STORE_URL` in Phase 2 |
+| Tests | `src/__tests__/unit/messageHandler.test.js` | Asserts `sendMessage` contains group id; DM path asserts *groupe* |
+
+### Current `#link` reply (verbatim builder)
+
+```text
+📋 ID du groupe WhatsApp:
+
+`{whatsappGroupId}`
+
+💡 Copiez cet ID et collez-le dans le profil client (dashboard LivSight).
+
+📝 Nom du groupe: {groupName}
+```
+
+No welcome, app store links, or credentials instructions today. Ops tip about pasting the ID into the dashboard is present; Phase 2–3 may fold ID/name into the Linear welcome copy (dashboard tip optional — propose in Phase 2 if we drop it).
+
+### Phase 2–3 implementation note
+
+Prefer a pure helper (e.g. `src/lib/linkWelcomeMessage.js`) consumed by `sendLinkMessage`, so unit tests cover copy without Puppeteer. Do not change who may run `#link` or the send fallback methods.
 
 ---
 
@@ -244,7 +276,7 @@ Refs LIV-14
 
 ## Phase 1 — Locate `#link` reply + document current message
 
-**Status:** Not started  
+**Status:** Done (2026-11-11, Cursor)  
 **Goal:** With human OK to read the codebase, find where `#link` builds its reply, document
 current text and any env already used, and note exact files for Phase 2–3.
 
@@ -273,7 +305,12 @@ Refs LIV-14
 
 ### Exit notes
 
-_(fill on Done)_
+- `#link` / `link` handled in `messageHandler.js`; reply built in `sendLinkMessage`.
+- Current message is ID + dashboard paste tip + group name only.
+- No store URL env vars yet; no welcome/credentials copy.
+- Existing unit coverage: group id in `sendMessage`; DM `#link` hint.
+- **No Linear checkboxes** flipped (none map to Phase 1).
+- No application code changed. Do not start Phase 2 until human explicitly says so.
 
 ---
 
