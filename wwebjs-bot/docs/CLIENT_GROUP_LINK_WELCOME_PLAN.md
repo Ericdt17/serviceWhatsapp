@@ -10,7 +10,7 @@ and adds a professional French welcome that encourages clients to download the L
 **Scope:** `#link` reply copy + configurable store URL env vars only — trigger and command
 behavior stay as today  
 **Last updated:** 2026-11-11  
-**Current phase:** 1 Done · next: Phase 2 (human must explicitly start)
+**Current phase:** 2 Done · next: Phase 3 (human must explicitly start)
 
 ---
 
@@ -117,9 +117,16 @@ before editing this file, and LIV-14-linked commits when committing.
 | Command | Existing `#link` — command stays as it is |
 | Trigger | Same as today (on `#link`) |
 | Language | French only (issue proposed copy) |
-| Store URLs | Env vars (placeholders OK until official links confirmed) |
+| Store URLs | Env vars `LIVSIGHT_ANDROID_STORE_URL` / `LIVSIGHT_IOS_STORE_URL` with official links |
+| Empty store URL | Omit that platform line; omit whole download section if both empty |
+| Dashboard tip | Keep short “paste ID into client profile” line under Identifiant |
 | Base branch | `main` |
 | Out of scope | Changing who can run `#link`, Core linking API, dashboard UX |
+
+Official store URLs (2026-11-11):
+
+- Android: `https://play.google.com/store/apps/details?id=com.livsight.client`
+- iOS: `https://apps.apple.com/fr/app/livsight/id6788786430`
 
 ### Target reply shape (from Linear; placeholders for stores)
 
@@ -173,7 +180,7 @@ Story → Linear map: US-1 → preserve ID/name + AC; US-2 → welcome task; US-
 |---|---|---|---|---|
 | 0 | Preconditions & Linear gate | Done (branch + plan) | Cursor | 2026-11-11 |
 | 1 | Locate `#link` reply + document current message | Done | Cursor | 2026-11-11 |
-| 2 | Message builder + store URL env (TDD) | Not started | — | — |
+| 2 | Message builder + store URL env (TDD) | Done | Cursor | 2026-11-11 |
 | 3 | Wire `#link` to new reply + unit tests | Not started | — | — |
 | 4 | Local / smoke verification of `#link` | Not started | — | — |
 
@@ -316,7 +323,7 @@ Refs LIV-14
 
 ## Phase 2 — Message builder + store URL env (TDD)
 
-**Status:** Not started  
+**Status:** Done (2026-11-11, Cursor)  
 **Goal:** Extract or add a pure helper that builds the French welcome from group name, group ID,
 and env store URLs; document env in `.envexample`.
 
@@ -334,7 +341,7 @@ and env store URLs; document env in `.envexample`.
 
 ### Verification
 
-- `npx jest` on the new/updated unit test file(s).
+- `./node_modules/.bin/jest src/__tests__/unit/linkWelcomeMessage.test.js` — 10 passed.
 
 ### Commit
 
@@ -346,7 +353,12 @@ Refs LIV-14
 
 ### Exit notes
 
-_(fill on Done)_
+- Added `src/lib/linkWelcomeMessage.js` (`buildLinkWelcomeMessage`, `resolveStoreUrlsFromEnv`).
+- Unit tests: `src/__tests__/unit/linkWelcomeMessage.test.js` (10 passed).
+- Documented + defaulted store URLs in `.envexample`; local `.env` updated (not committed).
+- Empty URL → omit platform line; both empty → omit download section; dashboard tip kept.
+- **No Linear checkboxes** flipped (multi-phase items check on Phase 3).
+- `#link` not wired yet. Do not start Phase 3 until human explicitly says so.
 
 ---
 
@@ -423,9 +435,7 @@ _(fill on Done)_
 
 ## Open questions
 
-None blocking after 2026-11-11 validation. Optional at Phase 2 start:
-
-- Exact fallback if one or both store URL envs are empty (omit line vs placeholder text)?
+None — empty-URL omit + dashboard tip + official store URLs validated 2026-11-11.
 
 ---
 
