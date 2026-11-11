@@ -18,6 +18,10 @@ const PHONE_PLUS_AMOUNT = "Je viens d'appeler le 699123456\n15k";
 const PHONE_PLUS_QUARTIER = "Je viens d'appeler le 699123456\nMakepe";
 const VALID_STRICT = "699123456\n2 robes\n15000\nMakepe";
 const PLACEHOLDER_STRICT = "699123456\nNon spécifié\n15000\nMakepe";
+const MESSY_WITH_PRODUCT =
+  "Bonjour voici une commande\nTel 699123456\n2 robes pour cliente\n15000\nvers Makepe merci";
+const ONE_LINE_WITH_PRODUCT = "Livraison 699123456 2 robes 15k makepe stp";
+const PRICE_ONLY_CHAT = "c'est 15k pour toi";
 
 describe("LIV-37 fixtures — product + intent gates", () => {
   describe("casual number share (ignore)", () => {
@@ -82,6 +86,37 @@ describe("LIV-37 fixtures — product + intent gates", () => {
     it("rejects strict 4-line with placeholder product", () => {
       const parsed = parseDeliveryMessage(PLACEHOLDER_STRICT);
       expect(parsed.valid).toBe(false);
+    });
+  });
+
+  describe("ambiguous orders with product (AI/confirm candidates)", () => {
+    it("messy multi-line with product looks malformed", () => {
+      expect(parseDeliveryMessage(MESSY_WITH_PRODUCT).valid).toBe(false);
+      expect(looksLikeMalformedDelivery(MESSY_WITH_PRODUCT)).toBe(true);
+    });
+
+    it("one-line order with product looks malformed", () => {
+      expect(parseDeliveryMessage(ONE_LINE_WITH_PRODUCT).valid).toBe(false);
+      expect(looksLikeMalformedDelivery(ONE_LINE_WITH_PRODUCT)).toBe(true);
+    });
+
+    it("price-only chat is not malformed", () => {
+      expect(looksLikeMalformedDelivery(PRICE_ONLY_CHAT)).toBe(false);
+    });
+
+    it("AI accepts real product on messy message", () => {
+      const out = validateAndNormalizeAiDelivery(
+        {
+          phone: "699123456",
+          product: "2 robes",
+          amount: 15000,
+          location: "Makepe",
+        },
+        MESSY_WITH_PRODUCT
+      );
+      expect(out).not.toBeNull();
+      expect(out.phone).toBe("699123456");
+      expect(out.items).toMatch(/robe/i);
     });
   });
 });

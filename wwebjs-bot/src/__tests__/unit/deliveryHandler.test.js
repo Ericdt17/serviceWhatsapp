@@ -499,6 +499,118 @@ describe("deliveryHandler handleDelivery (core mode)", () => {
 
     expect(coreApi.createTransaction).toHaveBeenCalledTimes(2);
   });
+
+  describe("LIV-37 regression paths", () => {
+    it("casual phone chitchat does not call AI or create", async () => {
+      const messageText = "Je viens d'appeler le 699123456\n15k";
+      await handleDelivery({
+        messageText,
+        msg: msgStub(messageText, "chat-1"),
+        group: null,
+        agencyId: null,
+        linkedClient,
+        client: {},
+        config: baseConfig(),
+        whatsappGroupId,
+      });
+      expect(extractDeliveryWithAI).not.toHaveBeenCalled();
+      expect(coreApi.createTransaction).not.toHaveBeenCalled();
+    });
+
+    it("price-only chat does not create", async () => {
+      const messageText = "c'est 15k pour toi";
+      await handleDelivery({
+        messageText,
+        msg: msgStub(messageText, "price-1"),
+        group: null,
+        agencyId: null,
+        linkedClient,
+        client: {},
+        config: baseConfig(),
+        whatsappGroupId,
+      });
+      expect(extractDeliveryWithAI).not.toHaveBeenCalled();
+      expect(coreApi.createTransaction).not.toHaveBeenCalled();
+    });
+
+    it("expired pending confirm does not create on oui", async () => {
+      pendingDeliveryConfirm.setPending({
+        whatsappGroupId,
+        author: "1855@lid",
+        sourceMessageId: "expired-src",
+        parsed: {
+          phone: "699123456",
+          items: "robes",
+          amount_due: 15000,
+          quartier: "makepe",
+        },
+        messageText: "messy",
+        linkedClient,
+        timeoutMs: 1,
+      });
+      const start = Date.now();
+      while (Date.now() - start < 5) {
+        /* spin */
+      }
+
+      await handleDelivery({
+        messageText: "oui",
+        msg: msgStub("oui", "oui-expired"),
+        group: null,
+        agencyId: null,
+        linkedClient,
+        client: {},
+        config: baseConfig(),
+        whatsappGroupId,
+      });
+
+      expect(coreApi.createTransaction).not.toHaveBeenCalled();
+    });
+
+    it("messy AI order asks confirm then creates only after oui", async () => {
+      const messy =
+        "Bonjour voici une commande\nTel 699000111\n2 robes pour cliente\n12000\nvers Akwa merci";
+      extractDeliveryWithAI.mockResolvedValue({ ok: true, raw: {} });
+      validateAndNormalizeAiDelivery.mockReturnValue({
+        phone: "699000111",
+        items: "2 robes",
+        amount_due: 12000,
+        quartier: "akwa",
+      });
+
+      await handleDelivery({
+        messageText: messy,
+        msg: msgStub(messy, "messy-1"),
+        group: null,
+        agencyId: null,
+        linkedClient,
+        client: {},
+        config: baseConfig(),
+        whatsappGroupId,
+      });
+      expect(coreApi.createTransaction).not.toHaveBeenCalled();
+      expect(extractDeliveryWithAI).toHaveBeenCalled();
+
+      await handleDelivery({
+        messageText: "oui",
+        msg: msgStub("oui", "messy-oui"),
+        group: null,
+        agencyId: null,
+        linkedClient,
+        client: {},
+        config: baseConfig(),
+        whatsappGroupId,
+      });
+      expect(coreApi.createTransaction).toHaveBeenCalledTimes(1);
+      expect(coreApi.createTransaction).toHaveBeenCalledWith(
+        "kc-1",
+        expect.objectContaining({ phone: "699000111", amount_due: 12000 }),
+        messy,
+        "messy-1",
+        expect.any(Object)
+      );
+    });
+  });
 });
 
 describe("duplicateOrderReplyText", () => {

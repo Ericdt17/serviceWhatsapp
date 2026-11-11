@@ -10,7 +10,7 @@ deliveries.
 **Base for PRs:** `main`  
 **Scope:** Core mode only (`USE_CORE_API=true`) — legacy DB path out of scope  
 **Last updated:** 2026-11-11  
-**Current phase:** 3 — Ambiguous-only confirm (Done — awaiting human OK / commit / live check)
+**Current phase:** 4 Done · Phase 5 Deferred (no bot staging env)
 
 ---
 
@@ -135,7 +135,7 @@ before editing this file, and LIV-37-linked commits when committing.
 | US-3 | Vendor | Phone + price or phone + quartier with **no product** is ignored | Incomplete chatter isn’t turned into fake deliveries | 2 (Done) |
 | US-4 | Vendor | Bot asks to confirm when an order is ambiguous (messy / AI path) | I can say *oui* / *non* before anything is created on Core | 3 (Done — live check pending) |
 | US-5 | Ops / admin | False `"Non spécifié"` / amount-0 pickups stop appearing | We don’t clean up junk transactions after the fact | 2 (Done) |
-| US-6 | Developer | Regression fixtures for chitchat vs valid orders | We don’t reintroduce false creates when changing parser/AI | 2–4 |
+| US-6 | Developer | Regression fixtures for chitchat vs valid orders | We don’t reintroduce false creates when changing parser/AI | 2–4 (Done) |
 
 Story → Linear AC map: US-1/US-3/US-5 → “numbers but no intent”; US-2 → “legitimate orders”; US-4 → “ambiguous handled safely” + confirm task; US-6 → “tests cover false positives and valid orders”.
 
@@ -149,8 +149,8 @@ Story → Linear AC map: US-1/US-3/US-5 → “numbers but no intent”; US-2 �
 | 1 | Reproduce & document create path / confirmation gap | Done | Cursor | 2026-11-11 |
 | 2 | Intent + product gates (strict + malformed + AI) | Done | Cursor | 2026-11-11 |
 | 3 | Ambiguous-only pre-create confirmation | Done | Cursor | 2026-11-11 |
-| 4 | Wire handler + regression unit tests | Not started | — | — |
-| 5 | Staging verification with realistic messages | Not started | — | — |
+| 4 | Wire handler + regression unit tests | Done | Cursor | 2026-11-11 |
+| 5 | Staging verification with realistic messages | Deferred | — | — |
 
 Statuses: `Not started` · `In progress` · `Blocked` · `Done`
 
@@ -360,7 +360,7 @@ Refs LIV-37
 
 ## Phase 4 — Wire handler + regression unit tests
 
-**Status:** Not started  
+**Status:** Done (2026-11-11, Cursor)  
 **Goal:** End-to-end unit coverage of handler paths: ignore / confirm / immediate create; no regressions.
 
 ### Scope
@@ -392,23 +392,26 @@ Refs LIV-37
 
 ### Exit notes
 
-_(fill on Done)_
+- Handler already wired in Phases 2–3; Phase 4 added regression coverage + cleanup.
+- New tests: `isPlaceholderProduct.test.js`; expanded `liv37FalseDeliveryFixtures`; handler LIV-37 paths (chitchat ignore, price-only, expired oui, messy→confirm→oui).
+- `[LIV-37-repro]` logs gated behind `LIV37_REPRO_LOG=true` (default off).
+- Verification: `npm test` → **685 passed**, 23 skipped, 58 suites.
 
 ---
 
 ## Phase 5 — Staging verification
 
-**Status:** Not started  
+**Status:** Deferred (2026-11-11) — **no WhatsApp bot staging environment** available.  
 **Goal:** Verify behavior on WhatsApp Bot staging with realistic messages.
 
-### Scope
+### Scope (when staging exists)
 
 - Manual checklist in linked staging group (core):
   - Casual number share → no delivery
   - Phone + chitchat → no delivery
   - Valid 4-line with product → creates (immediate)
   - Ambiguous AI-shaped order → confirm prompt; `oui` creates; ignore/timeout does not
-- Note env flags needed (`AI_DELIVERY_FALLBACK_ENABLED`, confirm timeout, etc.) in Exit notes / ops note if useful.
+- Note env flags needed (`AI_DELIVERY_FALLBACK_ENABLED`, confirm timeout, `LIV37_REPRO_LOG`, etc.).
 
 ### Out of scope
 
@@ -416,7 +419,7 @@ _(fill on Done)_
 
 ### Verification
 
-- Human sign-off on staging checklist results recorded in Exit notes.
+- Deferred until a staging bot exists. Local WhatsApp + Core checks already covered Phases 2–3 paths.
 
 ### Commit
 
@@ -428,7 +431,9 @@ Refs LIV-37
 
 ### Exit notes
 
-_(fill on Done)_
+- **Deferred by human (2026-11-11):** no bot staging env. Linear staging task left open.
+- Local verification used instead for ACs (chitchat ignore, strict create, AI confirm → oui).
+- Re-open this phase when staging bot is available.
 
 ---
 
@@ -448,24 +453,25 @@ or checkbox edits anytime if items look unnecessary; apply only after human OK.
 | Ambiguous/low-confidence do not auto-create; preserve legitimate flow | 2–3 | Phase 3 Done (last) |
 | Check whether confirmation exists; document before modifying | 1 (document) + 3 (add ambiguous confirm) | Phase 3 Done |
 | Add regression tests (casual, phones, prices, mixed, valid) | 2–4 | Phase 4 Done |
-| Verify on WhatsApp Bot staging with realistic messages | 5 | Phase 5 Done |
+| Verify on WhatsApp Bot staging with realistic messages | 5 | **Deferred** — leave open until staging bot exists |
 
 ### Acceptance criteria (from LIV-37)
 
 | Linear AC (summary) | Phase(s) | Check on Linear when |
 |---|---|---|
-| Numbers but no delivery intent do not create records | 2–5 | Phase 5 Done |
-| Legitimate delivery orders still recognized and created | 2–5 | Phase 5 Done |
-| Ambiguous messages handled safely without unintended create | 2–3, 5 | Phase 5 Done |
+| Numbers but no delivery intent do not create records | 2–4 | Phase 4 Done *(local; staging deferred)* |
+| Legitimate delivery orders still recognized and created | 2–4 | Phase 4 Done *(local; staging deferred)* |
+| Ambiguous messages handled safely without unintended create | 2–3 | Phase 3 Done *(local; staging deferred)* |
 | Tests cover false positives and valid orders | 4 | Phase 4 Done |
-| No regressions in existing message processing | 4–5 | Phase 5 Done |
+| No regressions in existing message processing | 4 | Phase 4 Done *(local; staging deferred)* |
 
 ## Acceptance criteria checklist (local mirror)
 
-- [x] Messages containing numbers but no delivery intent do not create delivery records *(US-1, US-3 — local verified Phase 2; staging AC still Phase 5)*
-- [x] Legitimate delivery orders continue to be recognized and created *(US-2 — local verified Phase 2; staging AC still Phase 5)*
-- [x] Ambiguous messages are handled safely (ignore or confirm) without unintended record creation *(US-4 — Phase 3 unit; staging Phase 5)*
-- [ ] Tests cover both false positives and valid orders *(US-6 — Phase 4)*
-- [ ] No regressions in existing message processing *(Phase 4–5)*
+- [x] Messages containing numbers but no delivery intent do not create delivery records *(US-1, US-3 — local verified)*
+- [x] Legitimate delivery orders continue to be recognized and created *(US-2 — local verified)*
+- [x] Ambiguous messages are handled safely (ignore or confirm) without unintended record creation *(US-4 — local verified)*
+- [x] Tests cover both false positives and valid orders *(US-6 — Phase 4)*
+- [x] No regressions in existing message processing *(Phase 4 `npm test`)*
 - [x] No product / placeholder product → not treated as a delivery *(US-5 — Phase 2)*
 - [x] Pre-create confirmation only for ambiguous/weak (AI) path; strict+product immediate *(US-4 — Phase 3)*
+- [ ] Staging soak *(Phase 5 — deferred: no bot staging env)*

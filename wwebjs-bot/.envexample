@@ -156,6 +156,7 @@ BOT_ALERT_WEBHOOK_URL=
 # Pre-create confirm for ambiguous / AI orders (LIV-37); default 12 min
 # DELIVERY_CONFIRM_TIMEOUT_MS=720000
 # DELIVERY_CONFIRM_FILE=data/pending-delivery-confirms.json
+# LIV37_REPRO_LOG=true
 # Dead letter JSON when order save fails (inspect/replay on VPS)
 # FAILED_ORDERS_DIR=failed-orders
 # Pause Core API calls after N consecutive 5xx (default 5 failures, 15 min)

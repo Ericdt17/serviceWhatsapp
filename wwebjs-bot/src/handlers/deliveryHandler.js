@@ -30,8 +30,9 @@ const pendingDeliveryConfirm = require("../lib/pendingDeliveryConfirm");
 /** groupId:author → timestamp of last format-reminder sent (ms) */
 const formatReminderCooldownByKey = new Map();
 
-/** Temporary LIV-37 local repro logs — remove after investigation. */
+/** Opt-in LIV-37 decision logs (`LIV37_REPRO_LOG=true`). */
 function liv37Log(step, detail) {
+  if (process.env.LIV37_REPRO_LOG !== "true") return;
   const payload =
     detail === undefined
       ? ""
@@ -539,7 +540,7 @@ async function handleDelivery({
         quotedId,
         quotedIsStrictDelivery: quotedStrict,
         quotedLooksMalformed,
-        note: "core mode does not yet treat replies as confirm/status; reply is ignored for create",
+        note: "non-confirm quoted reply ignored for create; use oui/non for pending AI confirm",
       });
       return;
     }
