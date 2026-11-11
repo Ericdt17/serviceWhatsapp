@@ -40,6 +40,7 @@ local-dev/
 !docs/PROD_ROADMAP.md
 !docs/QR_RECOVERY.md
 !docs/OPS_RUNBOOK.md
+!docs/FALSE_DELIVERY_PREVENTION_PLAN.md
 !devops/README.md
 !deploy/
 

@@ -42,6 +42,7 @@ const {
 const orderIdempotency = require("../../lib/orderIdempotency");
 const orderSemanticDedup = require("../../lib/orderSemanticDedup");
 const failedOrderDeadLetter = require("../../lib/failedOrderDeadLetter");
+const pendingDeliveryConfirm = require("../../lib/pendingDeliveryConfirm");
 const { handleDelivery, duplicateOrderReplyText } = require("../../handlers/deliveryHandler");
 
 const LABELED_FR =
@@ -67,6 +68,7 @@ describe("deliveryHandler handleDelivery (core mode)", () => {
       GROUP_ID: null,
       ORDER_SEMANTIC_DEDUP_ENABLED: true,
       ORDER_SEMANTIC_DEDUP_WINDOW_MS: 600000,
+      DELIVERY_CONFIRM_TIMEOUT_MS: 600000,
       ...overrides,
     };
   }
@@ -100,7 +102,9 @@ describe("deliveryHandler handleDelivery (core mode)", () => {
     jest.clearAllMocks();
     tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "order-sem-handler-"));
     process.env.ORDER_SEMANTIC_DEDUP_FILE = path.join(tmpDir, "fp.json");
+    process.env.DELIVERY_CONFIRM_FILE = path.join(tmpDir, "pending-confirm.json");
     orderSemanticDedup.resetForTests();
+    pendingDeliveryConfirm._resetForTests();
     orderIdempotency.tryAcquire.mockReturnValue(true);
     orderIdempotency.isSubmitted.mockReturnValue(false);
     coreApi.createTransaction.mockResolvedValue({
@@ -111,6 +115,7 @@ describe("deliveryHandler handleDelivery (core mode)", () => {
 
   afterEach(() => {
     delete process.env.ORDER_SEMANTIC_DEDUP_FILE;
+    delete process.env.DELIVERY_CONFIRM_FILE;
     fs.rmSync(tmpDir, { recursive: true, force: true });
   });
 
@@ -144,7 +149,7 @@ describe("deliveryHandler handleDelivery (core mode)", () => {
     expect(extractDeliveryWithAI).not.toHaveBeenCalled();
   });
 
-  it("labeled French message uses AI then createTransaction", async () => {
+  it("labeled French AI path asks confirm and does not create yet", async () => {
     const msg = msgStub(LABELED_FR, "ai-1");
     extractDeliveryWithAI.mockResolvedValue({
       ok: true,
@@ -170,14 +175,17 @@ describe("deliveryHandler handleDelivery (core mode)", () => {
     });
 
     expect(extractDeliveryWithAI).toHaveBeenCalledWith(LABELED_FR, expect.any(Object));
-    expect(coreApi.createTransaction).toHaveBeenCalledTimes(1);
-    expect(coreApi.createTransaction.mock.calls[0][1]).toEqual(
-      expect.objectContaining({ phone: "658635603", amount_due: 10000 })
+    expect(coreApi.createTransaction).not.toHaveBeenCalled();
+    expect(msg.reply).toHaveBeenCalledWith(
+      expect.stringMatching(/Confirmer cette livraison[\s\S]*oui/i)
     );
+    expect(
+      pendingDeliveryConfirm.getPending(whatsappGroupId, "1855@lid")
+    ).not.toBeNull();
   });
 
-  it("AI ok but Core 400 writes dead letter and sends format reminder", async () => {
-    const msg = msgStub(LABELED_FR, "ai-fail-1");
+  it("oui after AI confirm creates transaction", async () => {
+    const orderMsg = msgStub(LABELED_FR, "ai-confirm-1");
     extractDeliveryWithAI.mockResolvedValue({ ok: true, raw: {} });
     validateAndNormalizeAiDelivery.mockReturnValue({
       phone: "658635603",
@@ -185,15 +193,117 @@ describe("deliveryHandler handleDelivery (core mode)", () => {
       amount_due: 10000,
       quartier: "douala",
     });
-    const err = Object.assign(new Error("Create transaction failed (400)"), {
-      status: 400,
-      message: 'packageDescription: size must be between 0 and 160',
-    });
-    coreApi.createTransaction.mockRejectedValue(err);
 
     await handleDelivery({
       messageText: LABELED_FR,
-      msg,
+      msg: orderMsg,
+      group: null,
+      agencyId: null,
+      linkedClient,
+      client: {},
+      config: baseConfig(),
+      whatsappGroupId,
+    });
+    expect(coreApi.createTransaction).not.toHaveBeenCalled();
+
+    const ouiMsg = msgStub("oui", "oui-1");
+    await handleDelivery({
+      messageText: "oui",
+      msg: ouiMsg,
+      group: null,
+      agencyId: null,
+      linkedClient,
+      client: {},
+      config: baseConfig(),
+      whatsappGroupId,
+    });
+
+    expect(coreApi.createTransaction).toHaveBeenCalledTimes(1);
+    expect(coreApi.createTransaction).toHaveBeenCalledWith(
+      "kc-1",
+      expect.objectContaining({ phone: "658635603", amount_due: 10000 }),
+      LABELED_FR,
+      "ai-confirm-1",
+      expect.any(Object)
+    );
+    expect(
+      pendingDeliveryConfirm.getPending(whatsappGroupId, "1855@lid")
+    ).toBeNull();
+  });
+
+  it("non after AI confirm clears pending without create", async () => {
+    const orderMsg = msgStub(LABELED_FR, "ai-reject-1");
+    extractDeliveryWithAI.mockResolvedValue({ ok: true, raw: {} });
+    validateAndNormalizeAiDelivery.mockReturnValue({
+      phone: "658635603",
+      items: "savons",
+      amount_due: 10000,
+      quartier: "douala",
+    });
+
+    await handleDelivery({
+      messageText: LABELED_FR,
+      msg: orderMsg,
+      group: null,
+      agencyId: null,
+      linkedClient,
+      client: {},
+      config: baseConfig(),
+      whatsappGroupId,
+    });
+
+    const nonMsg = msgStub("non", "non-1");
+    await handleDelivery({
+      messageText: "non",
+      msg: nonMsg,
+      group: null,
+      agencyId: null,
+      linkedClient,
+      client: {},
+      config: baseConfig(),
+      whatsappGroupId,
+    });
+
+    expect(coreApi.createTransaction).not.toHaveBeenCalled();
+    expect(nonMsg.reply).toHaveBeenCalledWith(
+      expect.stringMatching(/non enregistrée/i)
+    );
+    expect(
+      pendingDeliveryConfirm.getPending(whatsappGroupId, "1855@lid")
+    ).toBeNull();
+  });
+
+  it("oui then Core 400 writes dead letter", async () => {
+    const orderMsg = msgStub(LABELED_FR, "ai-fail-1");
+    extractDeliveryWithAI.mockResolvedValue({ ok: true, raw: {} });
+    validateAndNormalizeAiDelivery.mockReturnValue({
+      phone: "658635603",
+      items: "savons",
+      amount_due: 10000,
+      quartier: "douala",
+    });
+
+    await handleDelivery({
+      messageText: LABELED_FR,
+      msg: orderMsg,
+      group: null,
+      agencyId: null,
+      linkedClient,
+      client: {},
+      config: baseConfig(),
+      whatsappGroupId,
+    });
+
+    const err = Object.assign(new Error("Create transaction failed (400)"), {
+      status: 400,
+      message: "packageDescription: size must be between 0 and 160",
+    });
+    coreApi.createTransaction.mockRejectedValue(err);
+
+    const ouiMsg = msgStub("oui", "oui-fail-1");
+    await handleDelivery({
+      messageText: "oui",
+      msg: ouiMsg,
       group: null,
       agencyId: null,
       linkedClient,
@@ -208,9 +318,6 @@ describe("deliveryHandler handleDelivery (core mode)", () => {
         whatsappMessageId: "ai-fail-1",
         error: err,
       })
-    );
-    expect(msg.reply).toHaveBeenCalledWith(
-      expect.stringMatching(/Commande non enregistrée/)
     );
   });
 
@@ -391,6 +498,118 @@ describe("deliveryHandler handleDelivery (core mode)", () => {
     });
 
     expect(coreApi.createTransaction).toHaveBeenCalledTimes(2);
+  });
+
+  describe("LIV-37 regression paths", () => {
+    it("casual phone chitchat does not call AI or create", async () => {
+      const messageText = "Je viens d'appeler le 699123456\n15k";
+      await handleDelivery({
+        messageText,
+        msg: msgStub(messageText, "chat-1"),
+        group: null,
+        agencyId: null,
+        linkedClient,
+        client: {},
+        config: baseConfig(),
+        whatsappGroupId,
+      });
+      expect(extractDeliveryWithAI).not.toHaveBeenCalled();
+      expect(coreApi.createTransaction).not.toHaveBeenCalled();
+    });
+
+    it("price-only chat does not create", async () => {
+      const messageText = "c'est 15k pour toi";
+      await handleDelivery({
+        messageText,
+        msg: msgStub(messageText, "price-1"),
+        group: null,
+        agencyId: null,
+        linkedClient,
+        client: {},
+        config: baseConfig(),
+        whatsappGroupId,
+      });
+      expect(extractDeliveryWithAI).not.toHaveBeenCalled();
+      expect(coreApi.createTransaction).not.toHaveBeenCalled();
+    });
+
+    it("expired pending confirm does not create on oui", async () => {
+      pendingDeliveryConfirm.setPending({
+        whatsappGroupId,
+        author: "1855@lid",
+        sourceMessageId: "expired-src",
+        parsed: {
+          phone: "699123456",
+          items: "robes",
+          amount_due: 15000,
+          quartier: "makepe",
+        },
+        messageText: "messy",
+        linkedClient,
+        timeoutMs: 1,
+      });
+      const start = Date.now();
+      while (Date.now() - start < 5) {
+        /* spin */
+      }
+
+      await handleDelivery({
+        messageText: "oui",
+        msg: msgStub("oui", "oui-expired"),
+        group: null,
+        agencyId: null,
+        linkedClient,
+        client: {},
+        config: baseConfig(),
+        whatsappGroupId,
+      });
+
+      expect(coreApi.createTransaction).not.toHaveBeenCalled();
+    });
+
+    it("messy AI order asks confirm then creates only after oui", async () => {
+      const messy =
+        "Bonjour voici une commande\nTel 699000111\n2 robes pour cliente\n12000\nvers Akwa merci";
+      extractDeliveryWithAI.mockResolvedValue({ ok: true, raw: {} });
+      validateAndNormalizeAiDelivery.mockReturnValue({
+        phone: "699000111",
+        items: "2 robes",
+        amount_due: 12000,
+        quartier: "akwa",
+      });
+
+      await handleDelivery({
+        messageText: messy,
+        msg: msgStub(messy, "messy-1"),
+        group: null,
+        agencyId: null,
+        linkedClient,
+        client: {},
+        config: baseConfig(),
+        whatsappGroupId,
+      });
+      expect(coreApi.createTransaction).not.toHaveBeenCalled();
+      expect(extractDeliveryWithAI).toHaveBeenCalled();
+
+      await handleDelivery({
+        messageText: "oui",
+        msg: msgStub("oui", "messy-oui"),
+        group: null,
+        agencyId: null,
+        linkedClient,
+        client: {},
+        config: baseConfig(),
+        whatsappGroupId,
+      });
+      expect(coreApi.createTransaction).toHaveBeenCalledTimes(1);
+      expect(coreApi.createTransaction).toHaveBeenCalledWith(
+        "kc-1",
+        expect.objectContaining({ phone: "699000111", amount_due: 12000 }),
+        messy,
+        "messy-1",
+        expect.any(Object)
+      );
+    });
   });
 });
 

@@ -11,6 +11,29 @@ const {
 } = require("./deliveryQuartiers");
 
 /**
+ * True when product/items text is missing or a known placeholder (not a real order item).
+ * Used to block false delivery creation (LIV-37).
+ * @param {string|null|undefined} itemsText
+ * @returns {boolean}
+ */
+function isPlaceholderProduct(itemsText) {
+  if (itemsText == null) return true;
+  const t = String(itemsText).trim();
+  if (t.length < 2) return true;
+  if (/^non\s*sp[eé]cifi[eé]e?$/i.test(t)) return true;
+  if (/^(n\/?a|na|aucun|rien|unknown|null|undefined|-|—|–|\.+)$/i.test(t)) {
+    return true;
+  }
+  // Digits-only (or phone-like) is not a product description
+  const digits = t.replace(/\D/g, "");
+  if (digits.length >= 8 && digits === t.replace(/\s+/g, "").replace(/^\+/, "")) {
+    return true;
+  }
+  if (/^\d+$/.test(t.replace(/\s+/g, ""))) return true;
+  return false;
+}
+
+/**
  * Normalize product line(s): join multi-product with em dash, sum quantities.
  * @param {string} itemsText
  * @returns {{ displayItems: string, quantity: number }}
@@ -287,6 +310,7 @@ function sanitizeDeliveryLocation(modelLocation, originalText, options = {}) {
 module.exports = {
   splitProductParts,
   normalizeItemsAndQuantity,
+  isPlaceholderProduct,
   isPriceLikeLocation,
   looksLikeDeliveryInstruction,
   lineLooksLikeProduct,

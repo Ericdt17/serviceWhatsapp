@@ -8,6 +8,7 @@ const {
 } = require("../parser");
 const {
   normalizeItemsAndQuantity,
+  isPlaceholderProduct,
   looksLikeDeliveryInstruction,
   sanitizeDeliveryLocation,
   splitProductParts,
@@ -45,7 +46,7 @@ OUTPUT (JSON only, no markdown, no commentary):
 - Quantity + description when present (e.g. "2 robes", "01 Savon BOASUN", "Pack homme").
 - Labels: Produit, Article, Colis, Pack, Commande, Items — text after the label.
 - Strip refs/times from product. Join multiple product lines with ", ".
-- If no product found, use "Non spécifié".
+- If no product found, use "" (empty). Never invent a product. Never use "Non spécifié".
 
 === LOCATION ===
 - Quartier, landmark, market, street hint for delivery.
@@ -203,8 +204,9 @@ function resolveAmountDue(amountFromText, amountFromModel, text) {
 }
 
 /**
- * Validates AI JSON against the original message. Requires phone + amount.
+ * Validates AI JSON against the original message. Requires phone + amount + real product.
  * Uses extractPhone/extractAmount from text when present to reduce hallucinations.
+ * Placeholder products ("Non spécifié", empty, digits-only) are rejected (LIV-37).
  *
  * @param {object|null} modelObj - Parsed JSON from the model
  * @param {string} originalText - Raw WhatsApp message
@@ -239,9 +241,10 @@ function validateAndNormalizeAiDelivery(modelObj, originalText) {
       : modelObj.items != null
         ? String(modelObj.items).trim()
         : "";
-  const { displayItems } = normalizeItemsAndQuantity(
-    productRaw.length > 0 ? productRaw : "Non spécifié"
-  );
+  if (isPlaceholderProduct(productRaw)) return null;
+
+  const { displayItems } = normalizeItemsAndQuantity(productRaw);
+  if (isPlaceholderProduct(displayItems)) return null;
 
   const productLines = [
     ...splitProductParts(productRaw),

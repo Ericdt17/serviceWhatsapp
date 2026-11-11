@@ -6,6 +6,10 @@ const {
   isExcludedFromDeliveryParsing,
   looksLikeMalformedDeliveryWithParsed,
   getFormatReminderMessage,
+  extractPhone,
+  extractAmount,
+  extractQuartier,
+  hasLabeledOrderFields,
 } = require("../parser");
 const {
   extractDeliveryWithAI,
@@ -21,9 +25,43 @@ const { extractTransactionRef } = require("../lib/transactionResponse");
 const botMetrics = require("../lib/botMetrics");
 const botLogger = require("../lib/botLogger");
 const { replyInWhatsappGroup } = require("../lib/waGroupReply");
+const pendingDeliveryConfirm = require("../lib/pendingDeliveryConfirm");
 
 /** groupId:author → timestamp of last format-reminder sent (ms) */
 const formatReminderCooldownByKey = new Map();
+
+/** Opt-in LIV-37 decision logs (`LIV37_REPRO_LOG=true`). */
+function liv37Log(step, detail) {
+  if (process.env.LIV37_REPRO_LOG !== "true") return;
+  const payload =
+    detail === undefined
+      ? ""
+      : typeof detail === "string"
+        ? detail
+        : JSON.stringify(detail);
+  console.log(`[LIV-37-repro] ${step}${payload ? ` ${payload}` : ""}`);
+}
+
+function liv37SignalSnapshot(messageText) {
+  const phone = extractPhone(messageText);
+  const amount = extractAmount(messageText);
+  const quartier = extractQuartier(messageText);
+  const labeled = hasLabeledOrderFields(messageText);
+  const lines = String(messageText || "")
+    .split("\n")
+    .map((l) => l.trim())
+    .filter(Boolean);
+  const letterLines = lines.filter((line) => /[a-zA-ZÀ-ÿ]/.test(line));
+  return {
+    phone: phone || null,
+    amount: amount == null ? null : amount,
+    knownQuartier: quartier || null,
+    labeledOrderFields: labeled,
+    lineCount: lines.length,
+    letterLineCount: letterLines.length,
+    letterLinePreview: letterLines.slice(0, 3),
+  };
+}
 
 function duplicateOrderReplyText(refLabel) {
   const ref = refLabel && String(refLabel) !== "N/A" ? String(refLabel) : null;
@@ -157,6 +195,14 @@ async function saveDelivery({
     }
 
     try {
+      liv37Log("saveDelivery_createTransaction", {
+        viaAi,
+        phone: parsed.phone,
+        items: parsed.items,
+        amount_due: parsed.amount_due,
+        quartier: parsed.quartier || null,
+        keycloakId: linkedClient.keycloakId,
+      });
       const result = await coreApi.createTransaction(
         linkedClient.keycloakId,
         parsed,
@@ -306,21 +352,203 @@ async function handleDelivery({
   config,
   whatsappGroupId,
 }) {
+  const whatsappMessageId = msg.id._serialized;
+  const author = msg.author || msg.from || "unknown";
+
+  // ── Pending AI-order confirm / reject (LIV-37 Phase 3) ─────────────────
+  if (
+    pendingDeliveryConfirm.isConfirmReply(messageText) ||
+    pendingDeliveryConfirm.isRejectReply(messageText)
+  ) {
+    const pending = pendingDeliveryConfirm.getPending(whatsappGroupId, author);
+    if (pending) {
+      if (pendingDeliveryConfirm.isRejectReply(messageText)) {
+        pendingDeliveryConfirm.clearPending(whatsappGroupId, author);
+        liv37Log("decision=CONFIRM_REJECTED", {
+          sourceMessageId: pending.sourceMessageId,
+        });
+        try {
+          await msg.reply("OK — commande non enregistrée.");
+        } catch (_) {
+          /* ignore */
+        }
+        return;
+      }
+
+      const consumed = pendingDeliveryConfirm.consumePending(
+        whatsappGroupId,
+        author
+      );
+      if (!consumed) {
+        liv37Log("decision=IGNORE", { reason: "confirm_expired" });
+        return;
+      }
+      liv37Log("decision=CREATE_AI_CONFIRMED", {
+        sourceMessageId: consumed.sourceMessageId,
+        phone: consumed.parsed?.phone,
+        items: consumed.parsed?.items,
+      });
+      try {
+        await saveDelivery({
+          parsed: consumed.parsed,
+          messageText: consumed.messageText,
+          whatsappMessageId: consumed.sourceMessageId,
+          messageTimestampSec: msg.timestamp,
+          group,
+          agencyId,
+          linkedClient: consumed.linkedClient || linkedClient,
+          config,
+          client,
+          viaAi: true,
+          whatsappGroupId,
+          msg,
+        });
+      } catch (dbError) {
+        logStructuredError("Erreur lors de la sauvegarde (confirm)", dbError);
+        persistFailedOrder(
+          {
+            parsed: consumed.parsed,
+            messageText: consumed.messageText,
+            whatsappMessageId: consumed.sourceMessageId,
+            linkedClient: consumed.linkedClient || linkedClient,
+            whatsappGroupId,
+            viaAi: true,
+          },
+          dbError
+        );
+      }
+      return;
+    }
+  }
+
   if (isExcludedFromDeliveryParsing(messageText)) {
     console.log(
       "   ⏭️  Excluded from delivery parsing (status / mention / etc.)"
     );
+    liv37Log("decision=IGNORE", {
+      reason: "excluded_from_parsing",
+      preview: String(messageText || "").slice(0, 120),
+    });
     return;
   }
 
-  const whatsappMessageId = msg.id._serialized;
   const deliveryData = parseDeliveryMessage(messageText);
+  const signals = liv37SignalSnapshot(messageText);
+  liv37Log("incoming", {
+    preview: String(messageText || "").slice(0, 160),
+    signals,
+    strictValid: !!deliveryData.valid,
+    strictError: deliveryData.error || null,
+    strictItems: deliveryData.items || null,
+    hasQuotedMsg: !!msg.hasQuotedMsg,
+    aiEnabled: !!config.AI_DELIVERY_FALLBACK_ENABLED,
+    hasOpenAiKey: !!config.OPENAI_API_KEY,
+    formatReminderEnabled: !!config.FORMAT_REMINDER_ENABLED,
+  });
 
-  if (msg.hasQuotedMsg && !deliveryData.valid) {
-    console.log(
-      "   ⏭️  Skipped: reply to another message (not a strict new order)"
-    );
-    return;
+  if (msg.hasQuotedMsg) {
+    let quotedPreview = null;
+    let quotedId = null;
+    let quotedStrict = null;
+    let quotedLooksMalformed = null;
+    let quotedSource = null;
+    let quotedParsed = null;
+
+    const applyQuotedBody = (quotedBody, id, source) => {
+      quotedSource = source;
+      quotedId = id || null;
+      quotedPreview = String(quotedBody || "").slice(0, 200);
+      quotedParsed = parseDeliveryMessage(quotedBody || "");
+      quotedStrict = !!quotedParsed.valid;
+      quotedLooksMalformed = looksLikeMalformedDeliveryWithParsed(
+        quotedBody || "",
+        quotedParsed
+      );
+    };
+
+    try {
+      const quotedMessage = await msg.getQuotedMessage();
+      if (quotedMessage) {
+        applyQuotedBody(
+          quotedMessage.body || quotedMessage.caption || "",
+          quotedMessage?.id?._serialized || quotedMessage?.id?.id || null,
+          "getQuotedMessage"
+        );
+      }
+    } catch (quoteErr) {
+      console.log(
+        `   ⚠️  getQuotedMessage failed (${quoteErr.message}) — trying msg._data.quotedMsg`
+      );
+    }
+
+    // Fallback: WA often embeds the quoted snippet on the reply event itself
+    // (getQuotedMessage/getChat both fail with "r" under current Store/LID issues).
+    if (!quotedPreview) {
+      const rawQuoted = msg._data?.quotedMsg || msg.quotedMsg || null;
+      const rawId =
+        msg._data?.quotedStanzaID ||
+        msg._data?.quotedMsgId ||
+        rawQuoted?.id?._serialized ||
+        rawQuoted?.id?.id ||
+        null;
+      if (rawQuoted) {
+        applyQuotedBody(
+          rawQuoted.body || rawQuoted.caption || rawQuoted.comment || "",
+          rawId,
+          "_data.quotedMsg"
+        );
+      } else {
+        liv37Log("reply_to_message", {
+          replyText: String(messageText || "").slice(0, 120),
+          error: "no_quoted_body_available",
+          rawKeys: msg._data ? Object.keys(msg._data).slice(0, 40) : [],
+        });
+      }
+    }
+
+    if (quotedPreview != null || quotedSource) {
+      console.log("   💬 REPLY detected (quoted previous message)");
+      console.log(`   📎 Quoted source: ${quotedSource || "(none)"}`);
+      console.log(`   📎 Quoted id: ${quotedId || "(none)"}`);
+      console.log(
+        `   📎 Quoted body preview: ${quotedPreview || "(empty)"}`
+      );
+      liv37Log("reply_to_message", {
+        replyText: String(messageText || "").slice(0, 120),
+        replyLooksLikeConfirm: /^\s*(oui|ok|yes|confirm(e|é)?|✅)\s*$/i.test(
+          String(messageText || "").trim()
+        ),
+        replyLooksLikeReject: /^\s*(non|no|cancel|annul(e|é)?|❌)\s*$/i.test(
+          String(messageText || "").trim()
+        ),
+        quotedSource,
+        quotedId,
+        quotedPreview,
+        quotedIsStrictDelivery: quotedStrict,
+        quotedLooksMalformed,
+        quotedItems: quotedParsed?.valid ? quotedParsed.items : null,
+        quotedPhone: quotedParsed?.valid ? quotedParsed.phone : null,
+      });
+    }
+
+    if (!deliveryData.valid) {
+      console.log(
+        "   ⏭️  Skipped: reply to another message (not a strict new order)"
+      );
+      liv37Log("decision=IGNORE", {
+        reason: "quoted_reply_not_strict",
+        quotedId,
+        quotedIsStrictDelivery: quotedStrict,
+        quotedLooksMalformed,
+        note: "non-confirm quoted reply ignored for create; use oui/non for pending AI confirm",
+      });
+      return;
+    }
+
+    liv37Log("reply_with_strict_order", {
+      note: "quoted reply body is itself a valid strict order — will create",
+      quotedId,
+    });
   }
 
   console.log(
@@ -336,13 +564,21 @@ async function handleDelivery({
 
     if (!deliveryData.phone && !deliveryData.hasPhone) {
       console.log("   ❌ Numéro de téléphone manquant");
+      liv37Log("decision=IGNORE", { reason: "strict_missing_phone" });
       return;
     }
     if (deliveryData.amount_due == null && !deliveryData.hasAmount) {
       console.log("   ❌ Montant manquant");
+      liv37Log("decision=IGNORE", { reason: "strict_missing_amount" });
       return;
     }
 
+    liv37Log("decision=CREATE_STRICT", {
+      phone: deliveryData.phone,
+      items: deliveryData.items,
+      amount_due: deliveryData.amount_due,
+      quartier: deliveryData.quartier || null,
+    });
     try {
       await saveDelivery({
         parsed: deliveryData,
@@ -382,6 +618,10 @@ async function handleDelivery({
     messageText,
     deliveryData
   );
+  liv37Log("malformed_gate", {
+    looksMalformed,
+    signals,
+  });
   let savedViaAi = false;
 
   // ── AI fallback ─────────────────────────────────────────────────────────
@@ -393,6 +633,9 @@ async function handleDelivery({
           console.log(
             `   ⏭️  AI fallback skipped — delivery already exists for message id=${existingByMsg.id}`
           );
+          liv37Log("decision=IGNORE", {
+            reason: "ai_skipped_existing_legacy_delivery",
+          });
         } else {
           await runAiFallback();
         }
@@ -400,20 +643,26 @@ async function handleDelivery({
         console.log(
           `   ⏭️  AI fallback skipped — transaction already submitted for message ${whatsappMessageId}`
         );
+        liv37Log("decision=IGNORE", {
+          reason: "ai_skipped_idempotent_already_submitted",
+        });
       } else {
         await runAiFallback();
       }
     } catch (aiErr) {
       console.error("   ❌ AI fallback error:", aiErr.message);
+      liv37Log("decision=AI_ERROR", { error: aiErr.message });
       botAlerts.notifyMessageError(aiErr, "ai-delivery-fallback");
     }
 
     async function runAiFallback() {
       console.log("   🤖 AI delivery fallback: calling OpenAI…");
+      liv37Log("ai_fallback_start");
       const aiResult = await extractDeliveryWithAI(messageText, config);
 
       if (!aiResult.ok) {
         console.log("   ⚠️  AI extraction failed:", aiResult.error || "unknown");
+        liv37Log("decision=AI_FAIL", { error: aiResult.error || "unknown" });
         if (aiResult.error !== "timeout") {
           botAlerts.notifyMessageError(
             new Error(`AI extraction failed: ${aiResult.error}`),
@@ -423,47 +672,55 @@ async function handleDelivery({
         return;
       }
 
+      liv37Log("ai_raw", aiResult.raw);
       const normalized = validateAndNormalizeAiDelivery(aiResult.raw, messageText);
       if (!normalized) {
         console.log(
           "   ⚠️  AI extraction did not pass validation (phone/amount mismatch)"
         );
+        liv37Log("decision=AI_REJECTED", {
+          reason: "validateAndNormalizeAiDelivery returned null",
+        });
         return;
       }
 
+      // Ambiguous / AI path: ask for confirm before Core create (LIV-37)
+      pendingDeliveryConfirm.setPending({
+        whatsappGroupId,
+        author,
+        sourceMessageId: whatsappMessageId,
+        parsed: normalized,
+        messageText,
+        linkedClient,
+        timeoutMs: config.DELIVERY_CONFIRM_TIMEOUT_MS,
+      });
+      const confirmText = pendingDeliveryConfirm.buildConfirmPrompt(normalized);
+      liv37Log("decision=ASK_CONFIRM_AI", {
+        phone: normalized.phone,
+        items: normalized.items,
+        amount_due: normalized.amount_due,
+        quartier: normalized.quartier || null,
+      });
       try {
-        await saveDelivery({
-          parsed: normalized,
-          messageText,
-          whatsappMessageId,
-          messageTimestampSec: msg.timestamp,
-          group,
-          agencyId,
-          linkedClient,
-          config,
-          client,
-          viaAi: true,
-          whatsappGroupId,
-          msg,
-        });
-        savedViaAi = true;
-      } catch (dbAiError) {
-        logStructuredError("Erreur lors de la sauvegarde (AI)", dbAiError);
-        persistFailedOrder(
-          {
-            parsed: normalized,
-            messageText,
-            whatsappMessageId,
-            linkedClient,
-            whatsappGroupId,
-            viaAi: true,
-          },
-          dbAiError
+        await msg.reply(confirmText);
+        savedViaAi = true; // suppress format reminder; create waits for oui
+        console.log("   📤  AI order pending confirm (awaiting oui/non)");
+      } catch (confirmErr) {
+        console.log(
+          "   ⚠️  Could not send confirm prompt:",
+          confirmErr.message
         );
+        botAlerts.notifyMessageError(confirmErr, "delivery-confirm-prompt");
       }
     }
   } else if (looksMalformed && config.AI_DELIVERY_FALLBACK_ENABLED) {
     console.log("   💡 AI fallback enabled but OPENAI_API_KEY missing — skipping");
+    liv37Log("decision=NO_AI_KEY", { looksMalformed: true });
+  } else if (!looksMalformed) {
+    liv37Log("decision=IGNORE", {
+      reason: "strict_fail_and_not_malformed",
+      note: "casual chat / number share should land here",
+    });
   }
 
   // ── Format reminder ─────────────────────────────────────────────────────
@@ -472,6 +729,7 @@ async function handleDelivery({
       console.log(
         "   💡 Message matches format-reminder heuristics; set FORMAT_REMINDER_ENABLED=true in .env to reply in-thread"
       );
+      liv37Log("format_reminder_skipped", { reason: "disabled" });
       return;
     }
 
@@ -482,6 +740,7 @@ async function handleDelivery({
 
     if (now - lastSent < config.FORMAT_REMINDER_COOLDOWN_MS) {
       console.log("   ⏭️  Format reminder skipped (cooldown)");
+      liv37Log("format_reminder_skipped", { reason: "cooldown" });
       return;
     }
 
@@ -489,6 +748,7 @@ async function handleDelivery({
       await msg.reply(getFormatReminderMessage());
       formatReminderCooldownByKey.set(cooldownKey, now);
       console.log("   📤  Format reminder sent (reply)");
+      liv37Log("format_reminder_sent");
     } catch (reminderErr) {
       console.log("   ⚠️  Could not send format reminder:", reminderErr.message);
       botAlerts.notifyMessageError(reminderErr, `format-reminder:${author}`);

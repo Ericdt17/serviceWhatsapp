@@ -247,13 +247,13 @@ describe('looksLikeMalformedDelivery', () => {
     expect(looksLikeMalformedDelivery('612345678')).toBe(false);
   });
 
-  it('returns true for two signals without valid structure (phone + amount)', () => {
-    expect(looksLikeMalformedDelivery('612345678\n15k')).toBe(true);
+  it('returns false for phone + amount without a product (LIV-37)', () => {
+    expect(looksLikeMalformedDelivery('612345678\n15k')).toBe(false);
   });
 
-  it('returns true for messy one-line text with phone, amount, known quartier', () => {
+  it('returns false for phone + amount + quartier chitchat without product (LIV-37)', () => {
     const msg = 'Livraison 612345678 client 15k vers makepe stp';
-    expect(looksLikeMalformedDelivery(msg)).toBe(true);
+    expect(looksLikeMalformedDelivery(msg)).toBe(false);
   });
 
   it('returns true for phone + product line without parseable amount', () => {
