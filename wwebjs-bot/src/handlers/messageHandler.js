@@ -14,6 +14,10 @@ const { handleStatusUpdate } = require("./statusUpdateHandler");
 const { handleDelivery } = require("./deliveryHandler");
 const { handleStaffCommand } = require("./staffCommands");
 const botLogger = require("../lib/botLogger");
+const {
+  buildLinkWelcomeMessage,
+  resolveStoreUrlsFromEnv,
+} = require("../lib/linkWelcomeMessage");
 
 /**
  * Main entry point for every incoming WhatsApp message.
@@ -322,14 +326,125 @@ async function onMessage(msg, client) {
 }
 
 /**
- * Send the group WhatsApp ID back to the group (3-method fallback chain).
+ * Read group title via WA Web modules when Client.getChat / getChatById throw "r".
+ * Prefer GroupMetadata.subject (queryAndUpdate) — do not call WWebJS.getChat (same failure).
+ */
+async function fetchGroupNameViaStore(client, whatsappGroupId) {
+  const page = client?.pupPage;
+  if (!page || typeof page.evaluate !== "function" || page.isClosed?.()) {
+    return null;
+  }
+  try {
+    const result = await page.evaluate(async (groupId) => {
+      const clean = (v) => {
+        const s = v == null ? "" : String(v).trim();
+        return s || null;
+      };
+      const notes = [];
+
+      try {
+        const widFactory = window.require("WAWebWidFactory");
+        const collections = window.require("WAWebCollections");
+        const wid = widFactory.createWid(groupId);
+
+        try {
+          await window
+            .require("WAWebGroupQueryJob")
+            .queryAndUpdateGroupMetadataById({ id: groupId });
+          notes.push("metaQueried");
+        } catch (e) {
+          notes.push(`metaQueryFail:${e?.message || e}`);
+        }
+
+        const metaCol =
+          collections.GroupMetadata ||
+          collections.WAWebGroupMetadataCollection;
+        const meta =
+          metaCol?.get?.(wid) ||
+          metaCol?.assertGet?.(wid) ||
+          metaCol?.find?.(wid) ||
+          null;
+        const fromMeta = clean(
+          meta?.subject || meta?.name || meta?.formattedTitle
+        );
+        if (fromMeta) return { name: fromMeta, notes };
+
+        const chat = collections.Chat?.get?.(wid) || null;
+        const fromChat = clean(
+          chat?.formattedTitle ||
+            chat?.name ||
+            chat?.groupMetadata?.subject ||
+            chat?.groupMetadata?.name
+        );
+        if (fromChat) return { name: fromChat, notes: [...notes, "fromChatGet"] };
+
+        notes.push("noNameInCollections");
+        return { name: null, notes };
+      } catch (e) {
+        return { name: null, notes: [`fatal:${e?.message || e}`] };
+      }
+    }, whatsappGroupId);
+
+    const name = result?.name && String(result.name).trim();
+    if (name) {
+      console.log(`   ✅ #link group name via Store: ${name}`);
+      return name;
+    }
+    console.log(
+      `   ⚠️  Store group name empty (${(result?.notes || []).join(", ") || "no notes"})`
+    );
+    return null;
+  } catch (err) {
+    console.log(
+      `   ⚠️  Store group name lookup failed: ${err.message || err}`
+    );
+    return null;
+  }
+}
+
+/**
+ * Prefer a real WhatsApp group title when getChat() fell back to "Unnamed Group".
+ */
+async function resolveLinkGroupName(client, whatsappGroupId, fallbackName) {
+  const fallback = String(fallbackName || "").trim();
+  const isPlaceholder =
+    !fallback || fallback === "Unnamed Group" || fallback === "—";
+  if (!isPlaceholder) return fallback;
+
+  try {
+    if (typeof client?.getChatById === "function") {
+      const chat = await client.getChatById(whatsappGroupId);
+      const name = String(chat?.name || "").trim();
+      if (name) return name;
+    }
+  } catch (err) {
+    console.log(
+      `   ⚠️  getChatById for #link group name failed: ${err.message || err}`
+    );
+  }
+
+  const fromStore = await fetchGroupNameViaStore(client, whatsappGroupId);
+  if (fromStore) return fromStore;
+
+  return fallback || "Unnamed Group";
+}
+
+/**
+ * Send the #link welcome reply (group name + ID + onboarding) via 3-method fallback.
  */
 async function sendLinkMessage(client, whatsappGroupId, groupName) {
-  const text =
-    `📋 ID du groupe WhatsApp:\n\n` +
-    `\`${whatsappGroupId}\`\n\n` +
-    `💡 Copiez cet ID et collez-le dans le profil client (dashboard LivSight).\n\n` +
-    `📝 Nom du groupe: ${groupName}`;
+  const resolvedName = await resolveLinkGroupName(
+    client,
+    whatsappGroupId,
+    groupName
+  );
+  const { androidUrl, iosUrl } = resolveStoreUrlsFromEnv();
+  const text = buildLinkWelcomeMessage({
+    groupName: resolvedName,
+    groupId: whatsappGroupId,
+    androidUrl,
+    iosUrl,
+  });
 
   let messageSent = false;
 

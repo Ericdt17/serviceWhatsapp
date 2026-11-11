@@ -65,10 +65,19 @@ describe("messageHandler onMessage", () => {
     };
   }
 
-  function clientStub() {
+  function clientStub(overrides = {}) {
     return {
       sendMessage: jest.fn().mockResolvedValue(undefined),
-      pupPage: null,
+      // Local WA Store often throws opaque "r" — name comes from pupPage fallback
+      getChatById: jest.fn().mockRejectedValue(new Error("r")),
+      pupPage: {
+        isClosed: () => false,
+        evaluate: jest
+          .fn()
+          .mockResolvedValueOnce({ name: "Pharmacie Test", notes: ["meta"] })
+          .mockResolvedValue(undefined), // sendSeen patch / other evaluates
+      },
+      ...overrides,
     };
   }
 
@@ -94,19 +103,49 @@ describe("messageHandler onMessage", () => {
     expect(botAlerts.notifyMessageError).not.toHaveBeenCalled();
   });
 
-  it("sends group id on #link when getChat fails but from is @g.us", async () => {
-    const { onMessage } = require("../../handlers/messageHandler");
-    const groupId = "120363424985037911@g.us";
-    const msg = groupOrderMsg({ body: "#link", from: groupId });
-    const client = clientStub();
+  it("sends welcome #link reply with id, name, stores, and credentials", async () => {
+    const android =
+      "https://play.google.com/store/apps/details?id=com.livsight.client";
+    const ios = "https://apps.apple.com/fr/app/livsight/id6788786430";
+    const prevAndroid = process.env.LIVSIGHT_ANDROID_STORE_URL;
+    const prevIos = process.env.LIVSIGHT_IOS_STORE_URL;
+    process.env.LIVSIGHT_ANDROID_STORE_URL = android;
+    process.env.LIVSIGHT_IOS_STORE_URL = ios;
 
-    await onMessage(msg, client);
+    try {
+      const { onMessage } = require("../../handlers/messageHandler");
+      const groupId = "120363424985037911@g.us";
+      const msg = groupOrderMsg({ body: "#link", from: groupId });
+      const client = clientStub();
 
-    expect(handleDelivery).not.toHaveBeenCalled();
-    expect(client.sendMessage).toHaveBeenCalledWith(
-      groupId,
-      expect.stringContaining(groupId)
-    );
+      await onMessage(msg, client);
+
+      expect(handleDelivery).not.toHaveBeenCalled();
+      expect(client.sendMessage).toHaveBeenCalledTimes(1);
+      const sent = client.sendMessage.mock.calls[0][1];
+      expect(client.sendMessage.mock.calls[0][0]).toBe(groupId);
+      expect(sent).toContain("Bienvenue chez LivSight");
+      expect(sent).toContain(groupId);
+      expect(sent).toContain("*PHARMACIE TEST*");
+      expect(sent).not.toContain("Unnamed Group");
+      expect(client.getChatById).toHaveBeenCalledWith(groupId);
+      expect(client.pupPage.evaluate).toHaveBeenCalled();
+      expect(sent).toMatch(/dashboard LivSight/i);
+      expect(sent).toContain("*Android :*");
+      expect(sent).toContain("*iPhone :*");
+      expect(sent).toContain(android);
+      expect(sent).toContain(ios);
+      expect(sent).toMatch(/identifiants de connexion/i);
+      expect(sent).toMatch(
+        /N'hésitez pas à faire signe si vous avez des soucis pour installer l'application/i
+      );
+      expect(sent).not.toMatch(/📋 ID du groupe WhatsApp/);
+    } finally {
+      if (prevAndroid === undefined) delete process.env.LIVSIGHT_ANDROID_STORE_URL;
+      else process.env.LIVSIGHT_ANDROID_STORE_URL = prevAndroid;
+      if (prevIos === undefined) delete process.env.LIVSIGHT_IOS_STORE_URL;
+      else process.env.LIVSIGHT_IOS_STORE_URL = prevIos;
+    }
   });
 
   it("tells user to use the group when #link is sent in DM", async () => {
