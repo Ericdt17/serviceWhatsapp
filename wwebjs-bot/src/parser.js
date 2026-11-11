@@ -1,5 +1,11 @@
 // Parser functions to extract delivery information from messages
 
+const {
+  isPlaceholderProduct,
+  looksLikeDeliveryInstruction,
+  isPriceLikeLocation,
+} = require("./lib/productNormalize");
+
 /** WhatsApp / mobile often inserts bidi and zero-width chars around numbers. */
 function stripInvisibleFormatting(text) {
   if (!text || typeof text !== "string") return "";
@@ -192,7 +198,11 @@ function extractAmount(text) {
  * Extract quartier (neighborhood) from text
  * Common quartiers in Douala/Cameroon (shared list — see lib/deliveryQuartiers.js)
  */
-const { KNOWN_QUARTIERS, extractKnownQuartier } = require("./lib/deliveryQuartiers");
+const {
+  KNOWN_QUARTIERS,
+  extractKnownQuartier,
+  isKnownQuartier,
+} = require("./lib/deliveryQuartiers");
 
 function extractQuartier(text) {
   return extractKnownQuartier(text);
@@ -339,7 +349,7 @@ function parseAlternativeFormat(text) {
   const productLines = lines.slice(1, lines.length - 2);
   const items = productLines.join(", ").trim();
 
-  if (!items || items.length < 2) {
+  if (!items || items.length < 2 || isPlaceholderProduct(items)) {
     return {
       valid: false,
       error: `Format alternatif: Produits invalides - Doit contenir au moins un produit`,
@@ -409,9 +419,9 @@ function parseCompactStructuredFormat(text) {
     };
   }
 
-  // Line 2: Items
+  // Line 2: Items (must be a real product — not placeholder / digits-only)
   const items = lines[1];
-  if (!items || items.length < 2) {
+  if (!items || items.length < 2 || isPlaceholderProduct(items)) {
     return {
       valid: false,
       error: `Produits invalides: "${items}" - Doit contenir la description des produits`,
@@ -567,8 +577,65 @@ function isExcludedFromDeliveryParsing(text) {
 const FORMAT_REMINDER_MIN_SIGNALS = 2;
 
 /**
- * True when the text has enough delivery-like signals (phone, amount, known quartier)
+ * True when a line looks like a real product description (not phone/amount/quartier/chitchat).
+ * LIV-37: without a product signal, messages must not open AI / format reminder.
+ */
+function lineLooksLikeOrderProduct(line, phone) {
+  const s = String(line || "").trim();
+  if (!s || s.length < 2) return false;
+  if (!/[a-zA-ZÀ-ÿ]/.test(s)) return false;
+  if (isPlaceholderProduct(s)) return false;
+  if (isPriceLikeLocation(s)) return false;
+  if (/^\+?[\d\s()-]{7,}$/.test(s)) return false;
+  if (/^\d+k?$/i.test(s.replace(/\s/g, ""))) return false;
+
+  const phoneDigits = phone ? phone.replace(/\D/g, "") : null;
+  if (phoneDigits && s.replace(/\D/g, "") === phoneDigits) return false;
+  // Lines that embed the customer phone are usually chitchat / one-liners, not products
+  // (e.g. "Je viens d'appeler le 699…", "Livraison 612… client 15k vers makepe").
+  if (phoneDigits && s.replace(/\D/g, "").includes(phoneDigits)) {
+    const hasExplicitProduct =
+      /(?:produit|article|colis|pack|commande)\s*[:\s]/i.test(s) ||
+      /\b\d+\s+(?:robes?|sacs?|chaussures?|packs?|savons?|lots?|articles?)\b/i.test(
+        s
+      );
+    if (!hasExplicitProduct) return false;
+  }
+
+  // Quartier-only lines are locations, not products
+  if (isKnownQuartier(s) || extractKnownQuartier(s) === s.toLowerCase().trim()) {
+    const withoutPlace = s.replace(/\s+/g, "");
+    if (withoutPlace.length <= 24 && !/\d/.test(s)) {
+      // short place name without quantity/product tokens
+      if (!/\b(?:robe|sac|chaussure|pack|colis|savon|lot|article|produit|x\d|\d+\s)/i.test(s)) {
+        return false;
+      }
+    }
+  }
+
+  if (/(?:produit|article|colis|pack|commande)\s*[:\s]/i.test(s)) return true;
+
+  return true;
+}
+
+function hasProductSignal(text, phone) {
+  if (/(?:produit|article|colis|pack|commande)\s*[:\s]/i.test(text)) {
+    return true;
+  }
+  const lines = String(text || "")
+    .split("\n")
+    .map((l) => l.trim())
+    .filter(Boolean);
+  for (const line of lines) {
+    if (lineLooksLikeOrderProduct(line, phone)) return true;
+  }
+  return false;
+}
+
+/**
+ * True when the text has enough delivery-like signals (phone, amount, product)
  * but strict parse fails — candidate for AI fallback or threaded format reminder.
+ * LIV-37: phone/amount/quartier alone is not enough — a product signal is required.
  * @param {string} text - raw message (will be stripped for checks)
  * @param {{ valid: boolean }} parsed - result of parseDeliveryMessage(text)
  */
@@ -602,22 +669,34 @@ function looksLikeMalformedDeliveryWithParsed(text, parsed) {
 
   /**
    * True when at least one line looks like a free-form location:
-   * - not empty, not a pure phone number, not a pure amount
+   * - not empty, not a pure phone number, not a pure amount, not a product line
    * - contains at least one letter (rules out pure digit lines)
-   * Does NOT require a known KNOWN_QUARTIERS match.
    */
   function hasLocationSignal() {
     const lines = stripped.split("\n").map((l) => l.trim()).filter(Boolean);
     const phoneDigits = phone ? phone.replace(/\D/g, "") : null;
     for (const line of lines) {
-      if (!/[a-zA-ZÀ-ÿ]/.test(line)) continue; // must have letters
-      if (/^\+?[\d\s()-]{7,}$/.test(line)) continue; // looks like a phone line
+      if (!/[a-zA-ZÀ-ÿ]/.test(line)) continue;
+      if (/^\+?[\d\s()-]{7,}$/.test(line)) continue;
       const lineClean = line.replace(/\s/g, "");
-      if (/^\d+k?$/i.test(lineClean)) continue; // looks like a pure amount line
-      if (phoneDigits && line.replace(/\D/g, "") === phoneDigits) continue; // is the phone
-      // Line has letters and is not phone/amount — treat as a location candidate
+      if (/^\d+k?$/i.test(lineClean)) continue;
+      if (phoneDigits && line.replace(/\D/g, "") === phoneDigits) continue;
+      if (lineLooksLikeOrderProduct(line, phone)) continue;
+      if (
+        phoneDigits &&
+        line.replace(/\D/g, "").includes(phoneDigits) &&
+        (looksLikeDeliveryInstruction(line) ||
+          /\b(?:appeler|appelle|viens|vient)\b/i.test(line))
+      ) {
+        continue; // chitchat with embedded phone is not a location
+      }
       return true;
     }
+    return false;
+  }
+
+  // No real product ⇒ not a delivery candidate (ignore casual number/price chat)
+  if (!hasProductSignal(stripped, phone)) {
     return false;
   }
 
@@ -634,8 +713,8 @@ function looksLikeMalformedDeliveryWithParsed(text, parsed) {
     return true;
   }
 
-  // Phone + product/location line (no parseable amount) — still try AI
-  if (phone != null && hasLocationSignal()) {
+  // Phone + product line (no parseable amount) — still try AI
+  if (phone != null && hasProductSignal(stripped, phone)) {
     return true;
   }
 

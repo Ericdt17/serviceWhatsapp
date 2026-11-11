@@ -10,7 +10,7 @@ deliveries.
 **Base for PRs:** `main`  
 **Scope:** Core mode only (`USE_CORE_API=true`) — legacy DB path out of scope  
 **Last updated:** 2026-11-11  
-**Current phase:** 1 — Reproduce & document (Done — awaiting human OK / commit)
+**Current phase:** 2 — Intent + product gates (Done — awaiting human OK / commit)
 
 ---
 
@@ -132,7 +132,7 @@ before editing this file, and LIV-37-linked commits when committing.
 |---|---|---|---|---|
 | 0 | Preconditions & Linear gate | Done (branch + plan) | Cursor | 2026-11-11 |
 | 1 | Reproduce & document create path / confirmation gap | Done | Cursor | 2026-11-11 |
-| 2 | Intent + product gates (strict + malformed + AI) | Not started | — | — |
+| 2 | Intent + product gates (strict + malformed + AI) | Done | Cursor | 2026-11-11 |
 | 3 | Ambiguous-only pre-create confirmation | Not started | — | — |
 | 4 | Wire handler + regression unit tests | Not started | — | — |
 | 5 | Staging verification with realistic messages | Not started | — | — |
@@ -253,7 +253,7 @@ Refs LIV-37
 
 ## Phase 2 — Intent + product gates (strict + malformed + AI)
 
-**Status:** Not started  
+**Status:** Done (2026-11-11, Cursor)  
 **Goal:** Require meaningful delivery-order evidence; number alone is never enough; no product ⇒ not a delivery; ambiguous casual chat ignored.
 
 ### Scope (TDD)
@@ -288,7 +288,13 @@ Refs LIV-37
 
 ### Exit notes
 
-_(fill on Done)_
+- Added `isPlaceholderProduct` in `productNormalize.js`; used by strict parser + AI validator.
+- `looksLikeMalformed*` now requires a **product signal**; phone+amount / phone+quartier / chitchat alone → ignore (no AI, no format reminder).
+- AI no longer accepts `"Non spécifié"` / empty / digits-only products; prompt updated to return empty product instead.
+- Strict 4-line with placeholder product → invalid.
+- Fixtures flipped in `liv37FalseDeliveryFixtures.test.js`; parser tests updated for LIV-37.
+- Verification: 83 passed across liv37 / parser / aiDeliveryExtract / deliveryHandler.
+- Confirm UX still Phase 3; `[LIV-37-repro]` logs still present.
 
 ---
 
