@@ -25,6 +25,7 @@ const { extractTransactionRef } = require("../lib/transactionResponse");
 const botMetrics = require("../lib/botMetrics");
 const botLogger = require("../lib/botLogger");
 const { replyInWhatsappGroup } = require("../lib/waGroupReply");
+const pendingDeliveryConfirm = require("../lib/pendingDeliveryConfirm");
 
 /** groupId:author → timestamp of last format-reminder sent (ms) */
 const formatReminderCooldownByKey = new Map();
@@ -350,6 +351,75 @@ async function handleDelivery({
   config,
   whatsappGroupId,
 }) {
+  const whatsappMessageId = msg.id._serialized;
+  const author = msg.author || msg.from || "unknown";
+
+  // ── Pending AI-order confirm / reject (LIV-37 Phase 3) ─────────────────
+  if (
+    pendingDeliveryConfirm.isConfirmReply(messageText) ||
+    pendingDeliveryConfirm.isRejectReply(messageText)
+  ) {
+    const pending = pendingDeliveryConfirm.getPending(whatsappGroupId, author);
+    if (pending) {
+      if (pendingDeliveryConfirm.isRejectReply(messageText)) {
+        pendingDeliveryConfirm.clearPending(whatsappGroupId, author);
+        liv37Log("decision=CONFIRM_REJECTED", {
+          sourceMessageId: pending.sourceMessageId,
+        });
+        try {
+          await msg.reply("OK — commande non enregistrée.");
+        } catch (_) {
+          /* ignore */
+        }
+        return;
+      }
+
+      const consumed = pendingDeliveryConfirm.consumePending(
+        whatsappGroupId,
+        author
+      );
+      if (!consumed) {
+        liv37Log("decision=IGNORE", { reason: "confirm_expired" });
+        return;
+      }
+      liv37Log("decision=CREATE_AI_CONFIRMED", {
+        sourceMessageId: consumed.sourceMessageId,
+        phone: consumed.parsed?.phone,
+        items: consumed.parsed?.items,
+      });
+      try {
+        await saveDelivery({
+          parsed: consumed.parsed,
+          messageText: consumed.messageText,
+          whatsappMessageId: consumed.sourceMessageId,
+          messageTimestampSec: msg.timestamp,
+          group,
+          agencyId,
+          linkedClient: consumed.linkedClient || linkedClient,
+          config,
+          client,
+          viaAi: true,
+          whatsappGroupId,
+          msg,
+        });
+      } catch (dbError) {
+        logStructuredError("Erreur lors de la sauvegarde (confirm)", dbError);
+        persistFailedOrder(
+          {
+            parsed: consumed.parsed,
+            messageText: consumed.messageText,
+            whatsappMessageId: consumed.sourceMessageId,
+            linkedClient: consumed.linkedClient || linkedClient,
+            whatsappGroupId,
+            viaAi: true,
+          },
+          dbError
+        );
+      }
+      return;
+    }
+  }
+
   if (isExcludedFromDeliveryParsing(messageText)) {
     console.log(
       "   ⏭️  Excluded from delivery parsing (status / mention / etc.)"
@@ -361,7 +431,6 @@ async function handleDelivery({
     return;
   }
 
-  const whatsappMessageId = msg.id._serialized;
   const deliveryData = parseDeliveryMessage(messageText);
   const signals = liv37SignalSnapshot(messageText);
   liv37Log("incoming", {
@@ -614,44 +683,33 @@ async function handleDelivery({
         return;
       }
 
-      liv37Log("decision=CREATE_AI", {
+      // Ambiguous / AI path: ask for confirm before Core create (LIV-37)
+      pendingDeliveryConfirm.setPending({
+        whatsappGroupId,
+        author,
+        sourceMessageId: whatsappMessageId,
+        parsed: normalized,
+        messageText,
+        linkedClient,
+        timeoutMs: config.DELIVERY_CONFIRM_TIMEOUT_MS,
+      });
+      const confirmText = pendingDeliveryConfirm.buildConfirmPrompt(normalized);
+      liv37Log("decision=ASK_CONFIRM_AI", {
         phone: normalized.phone,
         items: normalized.items,
         amount_due: normalized.amount_due,
         quartier: normalized.quartier || null,
-        placeholderProduct:
-          !normalized.items ||
-          /^non\s*sp[eé]cifi[eé]$/i.test(String(normalized.items).trim()),
       });
       try {
-        await saveDelivery({
-          parsed: normalized,
-          messageText,
-          whatsappMessageId,
-          messageTimestampSec: msg.timestamp,
-          group,
-          agencyId,
-          linkedClient,
-          config,
-          client,
-          viaAi: true,
-          whatsappGroupId,
-          msg,
-        });
-        savedViaAi = true;
-      } catch (dbAiError) {
-        logStructuredError("Erreur lors de la sauvegarde (AI)", dbAiError);
-        persistFailedOrder(
-          {
-            parsed: normalized,
-            messageText,
-            whatsappMessageId,
-            linkedClient,
-            whatsappGroupId,
-            viaAi: true,
-          },
-          dbAiError
+        await msg.reply(confirmText);
+        savedViaAi = true; // suppress format reminder; create waits for oui
+        console.log("   📤  AI order pending confirm (awaiting oui/non)");
+      } catch (confirmErr) {
+        console.log(
+          "   ⚠️  Could not send confirm prompt:",
+          confirmErr.message
         );
+        botAlerts.notifyMessageError(confirmErr, "delivery-confirm-prompt");
       }
     }
   } else if (looksMalformed && config.AI_DELIVERY_FALLBACK_ENABLED) {

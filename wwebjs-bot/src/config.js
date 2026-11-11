@@ -91,5 +91,14 @@ module.exports = {
     const n = parseInt(process.env.ORDER_SEMANTIC_DEDUP_WINDOW_MS || "600000", 10);
     return Number.isFinite(n) && n > 0 ? n : 600000;
   })(),
+
+  /** Pre-create confirm for ambiguous / AI orders (LIV-37). Default 12 min. */
+  DELIVERY_CONFIRM_TIMEOUT_MS: (() => {
+    const n = parseInt(
+      process.env.DELIVERY_CONFIRM_TIMEOUT_MS || String(12 * 60 * 1000),
+      10
+    );
+    return Number.isFinite(n) && n >= 60_000 ? n : 12 * 60 * 1000;
+  })(),
 };
 

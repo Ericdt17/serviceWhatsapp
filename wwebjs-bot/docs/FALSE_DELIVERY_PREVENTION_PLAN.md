@@ -10,7 +10,7 @@ deliveries.
 **Base for PRs:** `main`  
 **Scope:** Core mode only (`USE_CORE_API=true`) — legacy DB path out of scope  
 **Last updated:** 2026-11-11  
-**Current phase:** 2 — Intent + product gates (Done — awaiting human OK / commit)
+**Current phase:** 3 — Ambiguous-only confirm (Done — awaiting human OK / commit / live check)
 
 ---
 
@@ -126,6 +126,21 @@ before editing this file, and LIV-37-linked commits when committing.
 
 ---
 
+## User stories
+
+| ID | Role | Want | So that | Phase |
+|---|---|---|---|---|
+| US-1 | Vendor in WhatsApp group | Share a phone number in chat without creating an order | Casual messages don’t clutter the dashboard | 2 (Done) |
+| US-2 | Vendor | A clear 4-line order with a real product creates a delivery immediately | No extra steps for normal orders | 2 (Done) |
+| US-3 | Vendor | Phone + price or phone + quartier with **no product** is ignored | Incomplete chatter isn’t turned into fake deliveries | 2 (Done) |
+| US-4 | Vendor | Bot asks to confirm when an order is ambiguous (messy / AI path) | I can say *oui* / *non* before anything is created on Core | 3 (Done — live check pending) |
+| US-5 | Ops / admin | False `"Non spécifié"` / amount-0 pickups stop appearing | We don’t clean up junk transactions after the fact | 2 (Done) |
+| US-6 | Developer | Regression fixtures for chitchat vs valid orders | We don’t reintroduce false creates when changing parser/AI | 2–4 |
+
+Story → Linear AC map: US-1/US-3/US-5 → “numbers but no intent”; US-2 → “legitimate orders”; US-4 → “ambiguous handled safely” + confirm task; US-6 → “tests cover false positives and valid orders”.
+
+---
+
 ## Phase status
 
 | Phase | Name | Status | Owner / agent | Completed |
@@ -133,7 +148,7 @@ before editing this file, and LIV-37-linked commits when committing.
 | 0 | Preconditions & Linear gate | Done (branch + plan) | Cursor | 2026-11-11 |
 | 1 | Reproduce & document create path / confirmation gap | Done | Cursor | 2026-11-11 |
 | 2 | Intent + product gates (strict + malformed + AI) | Done | Cursor | 2026-11-11 |
-| 3 | Ambiguous-only pre-create confirmation | Not started | — | — |
+| 3 | Ambiguous-only pre-create confirmation | Done | Cursor | 2026-11-11 |
 | 4 | Wire handler + regression unit tests | Not started | — | — |
 | 5 | Staging verification with realistic messages | Not started | — | — |
 
@@ -300,7 +315,7 @@ Refs LIV-37
 
 ## Phase 3 — Ambiguous-only pre-create confirmation
 
-**Status:** Not started  
+**Status:** Done (2026-11-11, Cursor)  
 **Goal:** When a message still looks like a weak/AI-assisted order (not strict-valid), ask for confirm before `createTransaction`; timeout drops pending.
 
 ### Scope (TDD)
@@ -335,7 +350,11 @@ Refs LIV-37
 
 ### Exit notes
 
-_(fill on Done)_
+- Added `pendingDeliveryConfirm.js` (in-memory + file `DELIVERY_CONFIRM_FILE`, TTL `DELIVERY_CONFIRM_TIMEOUT_MS` default 12 min).
+- AI normalize success → `ASK_CONFIRM_AI` reply (summary + oui/non); **no** `createTransaction` until `oui`.
+- `non` clears pending; timeout expires pending; strict path still immediate create.
+- Unit tests: `pendingDeliveryConfirm.test.js` + deliveryHandler confirm/reject/400-after-oui.
+- Live WhatsApp check recommended before merge (labeled/messy order → confirm → oui).
 
 ---
 
@@ -443,10 +462,10 @@ or checkbox edits anytime if items look unnecessary; apply only after human OK.
 
 ## Acceptance criteria checklist (local mirror)
 
-- [ ] Messages containing numbers but no delivery intent do not create delivery records
-- [ ] Legitimate delivery orders continue to be recognized and created
-- [ ] Ambiguous messages are handled safely (ignore or confirm) without unintended record creation
-- [ ] Tests cover both false positives and valid orders
-- [ ] No regressions in existing message processing
-- [ ] No product / placeholder product → not treated as a delivery
-- [ ] Pre-create confirmation only for ambiguous/weak (AI) path; strict+product immediate
+- [x] Messages containing numbers but no delivery intent do not create delivery records *(US-1, US-3 — local verified Phase 2; staging AC still Phase 5)*
+- [x] Legitimate delivery orders continue to be recognized and created *(US-2 — local verified Phase 2; staging AC still Phase 5)*
+- [x] Ambiguous messages are handled safely (ignore or confirm) without unintended record creation *(US-4 — Phase 3 unit; staging Phase 5)*
+- [ ] Tests cover both false positives and valid orders *(US-6 — Phase 4)*
+- [ ] No regressions in existing message processing *(Phase 4–5)*
+- [x] No product / placeholder product → not treated as a delivery *(US-5 — Phase 2)*
+- [x] Pre-create confirmation only for ambiguous/weak (AI) path; strict+product immediate *(US-4 — Phase 3)*
