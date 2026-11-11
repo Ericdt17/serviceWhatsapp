@@ -19,10 +19,19 @@ describe("buildLinkWelcomeMessage", () => {
 
   it("includes group name and group id", () => {
     const text = buildLinkWelcomeMessage(base);
-    expect(text).toContain("Pharmacie Test");
+    expect(text).toContain("*PHARMACIE TEST*");
     expect(text).toContain("120363424985037911@g.us");
     expect(text).toMatch(/\*Nom du groupe\s*:?\*/);
     expect(text).toMatch(/\*Identifiant\s*:?\*/);
+  });
+
+  it("renders group name in bold ALL CAPS", () => {
+    const text = buildLinkWelcomeMessage({
+      ...base,
+      groupName: "Groupe LivSight Demo",
+    });
+    expect(text).toContain("*GROUPE LIVSIGHT DEMO*");
+    expect(text).not.toContain("Groupe LivSight Demo");
   });
 
   it("includes French welcome and credentials instructions", () => {
@@ -33,12 +42,22 @@ describe("buildLinkWelcomeMessage", () => {
     expect(text).toContain("*L'équipe LivSight*");
   });
 
-  it("includes both store links when provided", () => {
+  it("includes both store links with bold labels and blank lines between rows", () => {
     const text = buildLinkWelcomeMessage(base);
     expect(text).toContain(ANDROID);
     expect(text).toContain(IOS);
-    expect(text).toMatch(/Android\s*:/);
-    expect(text).toMatch(/iPhone\s*:/);
+    expect(text).toContain("*Android :*");
+    expect(text).toContain("*iPhone :*");
+    expect(text).toMatch(
+      /\*Télécharger l'application :\*\n\n\*Android :\* [^\n]+\n\n\*iPhone :\* /
+    );
+  });
+
+  it("invites clients to ask for help installing the app", () => {
+    const text = buildLinkWelcomeMessage(base);
+    expect(text).toMatch(
+      /N'hésitez pas à faire signe si vous avez des soucis pour installer l'application/i
+    );
   });
 
   it("keeps a short dashboard paste tip under the id", () => {

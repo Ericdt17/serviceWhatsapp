@@ -40,13 +40,14 @@ function buildLinkWelcomeMessage(opts = {}) {
   const groupId = String(opts.groupId || "").trim() || "—";
   const androidUrl = trimUrl(opts.androidUrl);
   const iosUrl = trimUrl(opts.iosUrl);
+  const groupNameDisplay = waBold(groupName.toLocaleUpperCase("fr-FR"));
 
   const lines = [
     "Bienvenue chez LivSight !",
     "",
     "Votre groupe WhatsApp a été configuré avec succès.",
     "",
-    `${waBold("Nom du groupe :")} ${groupName}`,
+    `${waBold("Nom du groupe :")} ${groupNameDisplay}`,
     `${waBold("Identifiant :")} ${groupId}`,
     "",
     "💡 Copiez cet ID et collez-le dans le profil client (dashboard LivSight).",
@@ -57,13 +58,21 @@ function buildLinkWelcomeMessage(opts = {}) {
   if (androidUrl || iosUrl) {
     lines.push("");
     lines.push(`${waBold("Télécharger l'application :")}`);
-    if (androidUrl) lines.push(`Android : ${androidUrl}`);
-    if (iosUrl) lines.push(`iPhone : ${iosUrl}`);
+    if (androidUrl) {
+      lines.push("");
+      lines.push(`${waBold("Android :")} ${androidUrl}`);
+    }
+    if (iosUrl) {
+      lines.push("");
+      lines.push(`${waBold("iPhone :")} ${iosUrl}`);
+    }
   }
 
   lines.push(
     "",
     "Une fois l'application installée, contactez notre équipe dans ce groupe pour récupérer vos identifiants de connexion.",
+    "",
+    "N'hésitez pas à faire signe si vous avez des soucis pour installer l'application.",
     "",
     "Merci de votre confiance !",
     waBold("L'équipe LivSight")

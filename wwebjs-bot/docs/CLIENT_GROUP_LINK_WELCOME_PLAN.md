@@ -10,7 +10,7 @@ and adds a professional French welcome that encourages clients to download the L
 **Scope:** `#link` reply copy + configurable store URL env vars only — trigger and command
 behavior stay as today  
 **Last updated:** 2026-11-11  
-**Current phase:** 2 Done · next: Phase 3 (human must explicitly start)
+**Current phase:** 4 Done (all phases complete)
 
 ---
 
@@ -120,6 +120,7 @@ before editing this file, and LIV-14-linked commits when committing.
 | Store URLs | Env vars `LIVSIGHT_ANDROID_STORE_URL` / `LIVSIGHT_IOS_STORE_URL` with official links |
 | Empty store URL | Omit that platform line; omit whole download section if both empty |
 | Dashboard tip | Keep short “paste ID into client profile” line under Identifiant |
+| Group name display | WhatsApp bold + ALL CAPS (`*NOM*`) |
 | Base branch | `main` |
 | Out of scope | Changing who can run `#link`, Core linking API, dashboard UX |
 
@@ -181,8 +182,8 @@ Story → Linear map: US-1 → preserve ID/name + AC; US-2 → welcome task; US-
 | 0 | Preconditions & Linear gate | Done (branch + plan) | Cursor | 2026-11-11 |
 | 1 | Locate `#link` reply + document current message | Done | Cursor | 2026-11-11 |
 | 2 | Message builder + store URL env (TDD) | Done | Cursor | 2026-11-11 |
-| 3 | Wire `#link` to new reply + unit tests | Not started | — | — |
-| 4 | Local / smoke verification of `#link` | Not started | — | — |
+| 3 | Wire `#link` to new reply + unit tests | Done | Cursor | 2026-11-11 |
+| 4 | Local / smoke verification of `#link` | Done | Cursor + human | 2026-11-11 |
 
 Statuses: `Not started` · `In progress` · `Blocked` · `Done`
 
@@ -364,7 +365,7 @@ Refs LIV-14
 
 ## Phase 3 — Wire `#link` to new reply + unit tests
 
-**Status:** Not started  
+**Status:** Done (2026-11-11, Cursor)  
 **Goal:** `#link` uses the new builder; trigger and permissions unchanged; unit tests cover
 handler reply content with mocks.
 
@@ -380,8 +381,7 @@ handler reply content with mocks.
 
 ### Verification
 
-- Scoped Jest for `#link` / welcome message tests.
-- Confirm no change to who may invoke `#link` or when it runs.
+- `./node_modules/.bin/jest src/__tests__/unit/messageHandler.test.js src/__tests__/unit/linkWelcomeMessage.test.js` — 17 passed.
 
 ### Commit
 
@@ -393,13 +393,19 @@ Refs LIV-14
 
 ### Exit notes
 
-_(fill on Done)_
+- `sendLinkMessage` builds text via `buildLinkWelcomeMessage` + store env URLs.
+- Group name: when `getChat` / `getChatById` fail with `r`, resolve via
+  `WAWebGroupQueryJob` + GroupMetadata.subject.
+- Copy extras: bold Android/iPhone, install-help sentence, bold ALL CAPS group name,
+  blank lines between download rows.
+- Trigger / DM hint / send fallback unchanged.
+- Linear checkboxes for Phase 3 items flipped with Phase 4 (human OK).
 
 ---
 
 ## Phase 4 — Local / smoke verification of `#link`
 
-**Status:** Not started  
+**Status:** Done (2026-11-11, human confirmed)  
 **Goal:** Confirm on a real or local WhatsApp session that `#link` returns the new formatted
 message with correct name, ID, both store links, and credential instructions.
 
@@ -414,22 +420,23 @@ message with correct name, ID, both store links, and credential instructions.
 
 ### Verification
 
-- Human confirms message looks correct in WhatsApp.
-- Relevant unit tests still green.
+- Human confirmed live `#link` message looks correct (name, stores, spacing, bold caps).
+- Unit tests green (17).
 
 ### Commit
 
 ```text
-docs(bot): record LIV-14 #link welcome smoke notes [LIV-14]
+feat(bot): use welcome message on #link reply [LIV-14]
 
 Refs LIV-14
 ```
 
-(or `fix(bot): …` if formatting fix required)
+(same commit as Phase 3 wire + smoke polish)
 
 ### Exit notes
 
-_(fill on Done)_
+- Live smoke OK after Store metadata name fix + formatting polish.
+- All Linear task checkboxes completed after human OK.
 
 ---
 
