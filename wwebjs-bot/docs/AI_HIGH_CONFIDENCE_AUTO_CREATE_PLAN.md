@@ -10,7 +10,7 @@ Strict 4-line parse stays immediate create.
 **Scope:** Core mode only (`USE_CORE_API=true`) — AI fallback branch in `deliveryHandler` after
 normalize; related to [LIV-37](https://linear.app/livsight-sarl/issue/LIV-37/whatsapp-bot-prevent-false-delivery-creation)  
 **Last updated:** 2026-11-13  
-**Current phase:** 2 Done · next: Phase 3 (human must explicitly start)
+**Current phase:** 3 Done · next: Phase 4 (human must explicitly start)
 
 ---
 
@@ -123,7 +123,7 @@ Refs LIV-48
 | 0 | Preconditions & Linear gate | Done (branch + plan) | Cursor | 2026-11-12 |
 | 1 | Document AI confirm path + confidence helper design | Done | Cursor | 2026-11-13 |
 | 2 | Confidence gate helper + unit tests (TDD) | Done | Cursor | 2026-11-13 |
-| 3 | Wire deliveryHandler: strong create / weak confirm | Not started | — | — |
+| 3 | Wire deliveryHandler: strong create / weak confirm | Done | Cursor | 2026-11-13 |
 | 4 | Smoke: clear AI auto-creates; weak still confirms | Not started | — | — |
 
 Statuses: `Not started` · `In progress` · `Blocked` · `Done`
@@ -293,7 +293,7 @@ Refs LIV-48
 
 ## Phase 3 — Wire deliveryHandler: strong create / weak confirm
 
-**Status:** Not started  
+**Status:** Done (2026-11-13, Cursor)  
 **Goal:** After AI normalize, if high-confidence → create immediately (same path as confirmed
 AI); else keep pending confirm + prompt. Strict path untouched.
 
@@ -308,7 +308,7 @@ AI); else keep pending confirm + prompt. Strict path untouched.
 
 ### Verification
 
-- Scoped Jest: deliveryHandler / AI confirm tests.
+- `./node_modules/.bin/jest src/__tests__/unit/deliveryHandler.test.js src/__tests__/unit/aiDeliveryConfidence.test.js` — 25 passed.
 
 ### Commit
 
@@ -320,7 +320,10 @@ Refs LIV-48
 
 ### Exit notes
 
-_(fill on Done)_
+- Wired `isHighConfidenceAiDelivery` in AI `runAiFallback`: strong → `saveDelivery`; weak → confirm.
+- Handler tests updated for LIV-48 (high-confidence create; weak confirm/oui/non).
+- Linear checkboxes for auto-create / weak confirm / strict unchanged / unit tests flipped after human OK.
+- Do not start Phase 4 until human explicitly says so.
 
 ---
 
