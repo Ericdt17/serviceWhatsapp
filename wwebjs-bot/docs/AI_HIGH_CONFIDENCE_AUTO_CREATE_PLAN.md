@@ -10,7 +10,7 @@ Strict 4-line parse stays immediate create.
 **Scope:** Core mode only (`USE_CORE_API=true`) — AI fallback branch in `deliveryHandler` after
 normalize; related to [LIV-37](https://linear.app/livsight-sarl/issue/LIV-37/whatsapp-bot-prevent-false-delivery-creation)  
 **Last updated:** 2026-11-13  
-**Current phase:** 1 Done · next: Phase 2 (human must explicitly start)
+**Current phase:** 2 Done · next: Phase 3 (human must explicitly start)
 
 ---
 
@@ -122,7 +122,7 @@ Refs LIV-48
 |---|---|---|---|---|
 | 0 | Preconditions & Linear gate | Done (branch + plan) | Cursor | 2026-11-12 |
 | 1 | Document AI confirm path + confidence helper design | Done | Cursor | 2026-11-13 |
-| 2 | Confidence gate helper + unit tests (TDD) | Not started | — | — |
+| 2 | Confidence gate helper + unit tests (TDD) | Done | Cursor | 2026-11-13 |
 | 3 | Wire deliveryHandler: strong create / weak confirm | Not started | — | — |
 | 4 | Smoke: clear AI auto-creates; weak still confirms | Not started | — | — |
 
@@ -257,7 +257,7 @@ Refs LIV-48
 
 ## Phase 2 — Confidence gate helper + unit tests (TDD)
 
-**Status:** Not started  
+**Status:** Done (2026-11-13, Cursor)  
 **Goal:** Pure helper: strong vs weak; fixtures for Yanis/Loic-style complete fields vs
 placeholder / amount 0 / missing quartier.
 
@@ -272,7 +272,7 @@ placeholder / amount 0 / missing quartier.
 
 ### Verification
 
-- Scoped Jest on the new helper test file.
+- `./node_modules/.bin/jest src/__tests__/unit/aiDeliveryConfidence.test.js` — 7 passed.
 
 ### Commit
 
@@ -284,7 +284,10 @@ Refs LIV-48
 
 ### Exit notes
 
-_(fill on Done)_
+- Added `src/lib/aiDeliveryConfidence.js` (`isHighConfidenceAiDelivery`).
+- Unit tests cover Yanis/Loic-style strong + placeholder / amount 0 / empty quartier / missing phone.
+- **No Linear checkboxes** flipped (handler wiring is Phase 3).
+- Do not start Phase 3 until human explicitly says so.
 
 ---
 
