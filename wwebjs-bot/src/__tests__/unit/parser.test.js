@@ -272,6 +272,27 @@ describe('looksLikeMalformedDelivery', () => {
     ].join('\n');
     expect(looksLikeMalformedDelivery(msg)).toBe(true);
   });
+
+  it('returns true for formulaire with lieu de collecte (collecte must not exclude)', () => {
+    const msg = [
+      'FORMULAIRE DE LIVRAISON CLIENT',
+      '',
+      '1.Nature du colis : un pastèque',
+      '',
+      '2-Date ,Heure et lieu de collecte:',
+      '',
+      '3-heure et Lieu de livraison: titi garage à 16h',
+      '',
+      '4-Nom et numéro du client : Dominique 692680934',
+      '',
+      '5 - somme à récupérer :5000 f',
+    ].join('\n');
+    expect(looksLikeMalformedDelivery(msg)).toBe(true);
+  });
+
+  it('returns false for leading Collecté status line', () => {
+    expect(looksLikeMalformedDelivery('Collecté 10k 688888888')).toBe(false);
+  });
 });
 
 describe('looksLikeMalformedDeliveryWithParsed', () => {

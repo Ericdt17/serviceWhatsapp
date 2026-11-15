@@ -192,4 +192,37 @@ describe("messageHandler onMessage", () => {
       })
     );
   });
+
+  it("core mode: formulaire with lieu de collecte still goes to handleDelivery (no status short-circuit)", async () => {
+    const { isStatusUpdate } = require("../../statusParser");
+    const formulaire = [
+      "FORMULAIRE DE LIVRAISON CLIENT",
+      "",
+      "1.Nature du colis : un pastèque",
+      "",
+      "2-Date ,Heure et lieu de collecte:",
+      "",
+      "3-heure et Lieu de livraison: titi garage à 16h",
+      "",
+      "4-Nom et numéro du client : Dominique 692680934",
+      "",
+      "5 - somme à récupérer :5000 f",
+    ].join("\n");
+
+    expect(isStatusUpdate(formulaire)).toBe(false); // "lieu de collecte" is not a status
+
+    const { onMessage } = require("../../handlers/messageHandler");
+    coreApi.getClientByWhatsappGroup.mockResolvedValue({
+      keycloakId: "kc-client-1",
+      source: "api",
+    });
+    const msg = groupOrderMsg({ body: formulaire });
+
+    await onMessage(msg, clientStub());
+
+    expect(handleDelivery).toHaveBeenCalledTimes(1);
+    expect(handleDelivery).toHaveBeenCalledWith(
+      expect.objectContaining({ messageText: formulaire })
+    );
+  });
 });

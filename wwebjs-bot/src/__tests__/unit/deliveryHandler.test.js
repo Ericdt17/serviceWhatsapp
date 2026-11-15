@@ -444,12 +444,10 @@ describe("deliveryHandler handleDelivery (core mode)", () => {
     expect(client.pupPage.evaluate).toHaveBeenCalledWith(
       expect.any(Function),
       whatsappGroupId,
-      expect.stringMatching(/déjà sur le dashboard/i),
+      expect.stringMatching(/déjà envoyé cette commande/i),
       expect.arrayContaining(["sem-2"])
     );
-    expect(client.pupPage.evaluate.mock.calls[0][2]).toMatch(
-      /ne renvoyez pas le même message/i
-    );
+    expect(client.pupPage.evaluate.mock.calls[0][2]).toMatch(/Vérifiez-la/i);
     expect(client.sendMessage).not.toHaveBeenCalled();
     expect(second.reply).not.toHaveBeenCalled();
     expect(orderIdempotency.markSubmitted).toHaveBeenCalledWith(
@@ -617,8 +615,9 @@ describe("deliveryHandler handleDelivery (core mode)", () => {
       ).toBeNull();
     });
 
-    it("weak AI amount 0 asks confirm and does not create yet", async () => {
-      const messy = "Tel 699000111\n2 robes\nAkwa";
+    it("high-confidence AI with amount 0 creates immediately (rien à encaisser)", async () => {
+      const messy =
+        "Bonjour commande\nTel 699000111\n2 robes pour cliente\n0 f\nvers Akwa merci";
       extractDeliveryWithAI.mockResolvedValue({ ok: true, raw: {} });
       validateAndNormalizeAiDelivery.mockReturnValue({
         phone: "699000111",
@@ -629,7 +628,7 @@ describe("deliveryHandler handleDelivery (core mode)", () => {
 
       await handleDelivery({
         messageText: messy,
-        msg: msgStub(messy, "weak-amt-1"),
+        msg: msgStub(messy, "zero-amt-1"),
         group: null,
         agencyId: null,
         linkedClient,
@@ -638,18 +637,26 @@ describe("deliveryHandler handleDelivery (core mode)", () => {
         whatsappGroupId,
       });
 
-      expect(coreApi.createTransaction).not.toHaveBeenCalled();
+      expect(extractDeliveryWithAI).toHaveBeenCalled();
+      expect(coreApi.createTransaction).toHaveBeenCalledTimes(1);
+      expect(coreApi.createTransaction).toHaveBeenCalledWith(
+        "kc-1",
+        expect.objectContaining({ phone: "699000111", amount_due: 0 }),
+        messy,
+        "zero-amt-1",
+        expect.any(Object)
+      );
       expect(
         pendingDeliveryConfirm.getPending(whatsappGroupId, "1855@lid")
-      ).not.toBeNull();
+      ).toBeNull();
     });
   });
 });
 
 describe("duplicateOrderReplyText", () => {
-  it("is short and tells the vendor not to resend", () => {
+  it("tells the vendor they already sent this order", () => {
     expect(duplicateOrderReplyText("145")).toBe(
-      "✅ Commande #145 déjà sur le dashboard.\n\nVérifiez-la, ne renvoyez pas le même message."
+      "Vous avez déjà envoyé cette commande (#145). Vérifiez-la."
     );
   });
 });

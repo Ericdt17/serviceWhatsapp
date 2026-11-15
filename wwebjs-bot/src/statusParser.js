@@ -213,12 +213,12 @@ function parseStatusUpdate(text, isReply = false) {
     };
   }
 
-  // 7. PAYMENT COLLECTED - "Collecté", "Collecte", "Payé"
+  // 7. PAYMENT COLLECTED - leading "Collecté"/"Collecte"/"Payé" only
+  // (do not match "lieu de collecte" inside delivery formulaires).
+  // Avoid \b after accents — JS \w is ASCII-only (same as livré elsewhere).
   if (
-    lowerText.match(/^collect[ée]?/i) ||
-    lowerText.match(/^pay[ée]?/i) ||
-    lowerText.includes("collecté") ||
-    lowerText.includes("collecte")
+    /^\s*collect[ée]e?(?=[\s,.;:!?]|$)/i.test(lowerText) ||
+    /^\s*pay[ée]e?(?=[\s,.;:!?]|$)/i.test(lowerText)
   ) {
     const phone = extractPhoneFromStatus(text);
     const amount = extractAmountFromStatus(text);

@@ -550,12 +550,15 @@ function isExcludedFromDeliveryParsing(text) {
   const hasLivreStatus =
     /(?:^|[\s,.;:!?])livr[ée]e?(?=[\s,.;:!?]|$)/i.test(lowerText);
 
+  // "collecte" only at message start — "lieu de collecte" in delivery forms must not exclude.
+  // Avoid \b after accents — JS \w is ASCII-only (same as hasLivreStatus).
+  const hasCollecteStatus = /^\s*collect[ée]e?(?=[\s,.;:!?]|$)/i.test(lowerText);
+
   const isStatusUpdate =
     hasLivreStatus ||
     lowerText.includes("échec") ||
     lowerText.includes("echec") ||
-    lowerText.includes("collecté") ||
-    lowerText.includes("collecte") ||
+    hasCollecteStatus ||
     /^modifier|^modif/i.test(lowerText.trimStart()) ||
     /^change\b/i.test(lowerText.trimStart()) ||
     lowerText.includes("vient chercher") ||

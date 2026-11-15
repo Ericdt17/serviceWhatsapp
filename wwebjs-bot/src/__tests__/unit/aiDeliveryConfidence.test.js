@@ -58,13 +58,22 @@ describe("isHighConfidenceAiDelivery", () => {
     );
   });
 
-  it("is false when amount_due is 0 or missing", () => {
+  it("is true when amount_due is 0 (rien à encaisser) with phone+product+quartier", () => {
     expect(isHighConfidenceAiDelivery(normalized({ amount_due: 0 }))).toBe(
-      false
+      true
     );
+  });
+
+  it("is false when amount_due is missing or negative", () => {
     expect(
       isHighConfidenceAiDelivery(normalized({ amount_due: null }))
     ).toBe(false);
+    expect(
+      isHighConfidenceAiDelivery(normalized({ amount_due: undefined }))
+    ).toBe(false);
+    expect(isHighConfidenceAiDelivery(normalized({ amount_due: -1 }))).toBe(
+      false
+    );
   });
 
   it("is false when quartier is empty", () => {

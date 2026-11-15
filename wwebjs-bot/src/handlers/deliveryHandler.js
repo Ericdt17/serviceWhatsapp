@@ -66,10 +66,9 @@ function liv37SignalSnapshot(messageText) {
 
 function duplicateOrderReplyText(refLabel) {
   const ref = refLabel && String(refLabel) !== "N/A" ? String(refLabel) : null;
-  const title = ref
-    ? `✅ Commande #${ref} déjà sur le dashboard.`
-    : "✅ Commande déjà sur le dashboard.";
-  return `${title}\n\nVérifiez-la, ne renvoyez pas le même message.`;
+  return ref
+    ? `Vous avez déjà envoyé cette commande (#${ref}). Vérifiez-la.`
+    : "Vous avez déjà envoyé cette commande. Vérifiez-la.";
 }
 
 function persistFailedOrder(ctx, error) {

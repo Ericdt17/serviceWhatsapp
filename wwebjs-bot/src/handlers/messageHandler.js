@@ -264,14 +264,11 @@ async function onMessage(msg, client) {
     console.log("   Full Message:", messageText);
     console.log("   Message Length:", messageText.length);
 
-    // ── Status update path (legacy DB only) ─────────────────────────────
+    // ── Status update path (legacy DB only; not used in core mode) ──────
+    // Core mode: statuses are not done via WhatsApp. Do not short-circuit —
+    // keywords like "collecte" in delivery forms would otherwise block AI/create.
     const isStatus = isStatusUpdate(messageText) || deliveryFromReply;
-    if (isStatus) {
-      if (config.USE_CORE_API) {
-        console.log("   ⏭️  Status updates via WhatsApp not yet wired to core API");
-        console.log("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n");
-        return;
-      }
+    if (isStatus && !config.USE_CORE_API) {
       console.log("   🔄 Detected as STATUS UPDATE");
 
       let delivery = deliveryFromReply;
