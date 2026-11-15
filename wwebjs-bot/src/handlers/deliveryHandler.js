@@ -26,6 +26,7 @@ const botMetrics = require("../lib/botMetrics");
 const botLogger = require("../lib/botLogger");
 const { replyInWhatsappGroup } = require("../lib/waGroupReply");
 const pendingDeliveryConfirm = require("../lib/pendingDeliveryConfirm");
+const { isHighConfidenceAiDelivery } = require("../lib/aiDeliveryConfidence");
 
 /** groupId:author → timestamp of last format-reminder sent (ms) */
 const formatReminderCooldownByKey = new Map();
@@ -65,10 +66,9 @@ function liv37SignalSnapshot(messageText) {
 
 function duplicateOrderReplyText(refLabel) {
   const ref = refLabel && String(refLabel) !== "N/A" ? String(refLabel) : null;
-  const title = ref
-    ? `✅ Commande #${ref} déjà sur le dashboard.`
-    : "✅ Commande déjà sur le dashboard.";
-  return `${title}\n\nVérifiez-la, ne renvoyez pas le même message.`;
+  return ref
+    ? `Vous avez déjà envoyé cette commande (#${ref}). Vérifiez-la.`
+    : "Vous avez déjà envoyé cette commande. Vérifiez-la.";
 }
 
 function persistFailedOrder(ctx, error) {
@@ -684,7 +684,48 @@ async function handleDelivery({
         return;
       }
 
-      // Ambiguous / AI path: ask for confirm before Core create (LIV-37)
+      // LIV-48: high-confidence AI → create immediately; weak → confirm (LIV-37)
+      if (isHighConfidenceAiDelivery(normalized)) {
+        liv37Log("decision=CREATE_AI_HIGH_CONFIDENCE", {
+          phone: normalized.phone,
+          items: normalized.items,
+          amount_due: normalized.amount_due,
+          quartier: normalized.quartier || null,
+        });
+        try {
+          await saveDelivery({
+            parsed: normalized,
+            messageText,
+            whatsappMessageId,
+            messageTimestampSec: msg.timestamp,
+            group,
+            agencyId,
+            linkedClient,
+            config,
+            client,
+            viaAi: true,
+            whatsappGroupId,
+            msg,
+          });
+          savedViaAi = true;
+          console.log("   ✅  High-confidence AI order created (no confirm)");
+        } catch (dbError) {
+          logStructuredError("Erreur lors de la sauvegarde (AI high-confidence)", dbError);
+          persistFailedOrder(
+            {
+              parsed: normalized,
+              messageText,
+              whatsappMessageId,
+              linkedClient,
+              whatsappGroupId,
+              viaAi: true,
+            },
+            dbError
+          );
+        }
+        return;
+      }
+
       pendingDeliveryConfirm.setPending({
         whatsappGroupId,
         author,
@@ -704,7 +745,7 @@ async function handleDelivery({
       try {
         await msg.reply(confirmText);
         savedViaAi = true; // suppress format reminder; create waits for oui
-        console.log("   📤  AI order pending confirm (awaiting oui/non)");
+        console.log("   📤  Weak AI order pending confirm (awaiting oui/non)");
       } catch (confirmErr) {
         console.log(
           "   ⚠️  Could not send confirm prompt:",

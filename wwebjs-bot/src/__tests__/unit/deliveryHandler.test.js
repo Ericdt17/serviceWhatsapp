@@ -149,7 +149,7 @@ describe("deliveryHandler handleDelivery (core mode)", () => {
     expect(extractDeliveryWithAI).not.toHaveBeenCalled();
   });
 
-  it("labeled French AI path asks confirm and does not create yet", async () => {
+  it("high-confidence AI labeled order creates immediately without confirm (LIV-48)", async () => {
     const msg = msgStub(LABELED_FR, "ai-1");
     extractDeliveryWithAI.mockResolvedValue({
       ok: true,
@@ -175,23 +175,34 @@ describe("deliveryHandler handleDelivery (core mode)", () => {
     });
 
     expect(extractDeliveryWithAI).toHaveBeenCalledWith(LABELED_FR, expect.any(Object));
-    expect(coreApi.createTransaction).not.toHaveBeenCalled();
-    expect(msg.reply).toHaveBeenCalledWith(
-      expect.stringMatching(/Confirmer cette livraison[\s\S]*oui/i)
+    expect(coreApi.createTransaction).toHaveBeenCalledTimes(1);
+    expect(coreApi.createTransaction).toHaveBeenCalledWith(
+      "kc-1",
+      expect.objectContaining({
+        phone: "658635603",
+        amount_due: 10000,
+        items: "savons",
+      }),
+      LABELED_FR,
+      "ai-1",
+      expect.any(Object)
+    );
+    expect(msg.reply).not.toHaveBeenCalledWith(
+      expect.stringMatching(/Confirmer cette livraison/i)
     );
     expect(
       pendingDeliveryConfirm.getPending(whatsappGroupId, "1855@lid")
-    ).not.toBeNull();
+    ).toBeNull();
   });
 
-  it("oui after AI confirm creates transaction", async () => {
+  it("weak AI (no quartier) asks confirm and creates only after oui", async () => {
     const orderMsg = msgStub(LABELED_FR, "ai-confirm-1");
     extractDeliveryWithAI.mockResolvedValue({ ok: true, raw: {} });
     validateAndNormalizeAiDelivery.mockReturnValue({
       phone: "658635603",
       items: "savons",
       amount_due: 10000,
-      quartier: "douala",
+      quartier: null,
     });
 
     await handleDelivery({
@@ -205,6 +216,9 @@ describe("deliveryHandler handleDelivery (core mode)", () => {
       whatsappGroupId,
     });
     expect(coreApi.createTransaction).not.toHaveBeenCalled();
+    expect(orderMsg.reply).toHaveBeenCalledWith(
+      expect.stringMatching(/Confirmer cette livraison[\s\S]*oui/i)
+    );
 
     const ouiMsg = msgStub("oui", "oui-1");
     await handleDelivery({
@@ -231,14 +245,14 @@ describe("deliveryHandler handleDelivery (core mode)", () => {
     ).toBeNull();
   });
 
-  it("non after AI confirm clears pending without create", async () => {
+  it("non after weak AI confirm clears pending without create", async () => {
     const orderMsg = msgStub(LABELED_FR, "ai-reject-1");
     extractDeliveryWithAI.mockResolvedValue({ ok: true, raw: {} });
     validateAndNormalizeAiDelivery.mockReturnValue({
       phone: "658635603",
       items: "savons",
       amount_due: 10000,
-      quartier: "douala",
+      quartier: null,
     });
 
     await handleDelivery({
@@ -276,11 +290,12 @@ describe("deliveryHandler handleDelivery (core mode)", () => {
   it("oui then Core 400 writes dead letter", async () => {
     const orderMsg = msgStub(LABELED_FR, "ai-fail-1");
     extractDeliveryWithAI.mockResolvedValue({ ok: true, raw: {} });
+    // Weak AI so confirm path is used; failure happens on oui create
     validateAndNormalizeAiDelivery.mockReturnValue({
       phone: "658635603",
       items: "savons",
       amount_due: 10000,
-      quartier: "douala",
+      quartier: null,
     });
 
     await handleDelivery({
@@ -429,12 +444,10 @@ describe("deliveryHandler handleDelivery (core mode)", () => {
     expect(client.pupPage.evaluate).toHaveBeenCalledWith(
       expect.any(Function),
       whatsappGroupId,
-      expect.stringMatching(/déjà sur le dashboard/i),
+      expect.stringMatching(/déjà envoyé cette commande/i),
       expect.arrayContaining(["sem-2"])
     );
-    expect(client.pupPage.evaluate.mock.calls[0][2]).toMatch(
-      /ne renvoyez pas le même message/i
-    );
+    expect(client.pupPage.evaluate.mock.calls[0][2]).toMatch(/Vérifiez-la/i);
     expect(client.sendMessage).not.toHaveBeenCalled();
     expect(second.reply).not.toHaveBeenCalled();
     expect(orderIdempotency.markSubmitted).toHaveBeenCalledWith(
@@ -567,7 +580,7 @@ describe("deliveryHandler handleDelivery (core mode)", () => {
       expect(coreApi.createTransaction).not.toHaveBeenCalled();
     });
 
-    it("messy AI order asks confirm then creates only after oui", async () => {
+    it("messy but high-confidence AI creates immediately without oui (LIV-48)", async () => {
       const messy =
         "Bonjour voici une commande\nTel 699000111\n2 robes pour cliente\n12000\nvers Akwa merci";
       extractDeliveryWithAI.mockResolvedValue({ ok: true, raw: {} });
@@ -588,19 +601,7 @@ describe("deliveryHandler handleDelivery (core mode)", () => {
         config: baseConfig(),
         whatsappGroupId,
       });
-      expect(coreApi.createTransaction).not.toHaveBeenCalled();
       expect(extractDeliveryWithAI).toHaveBeenCalled();
-
-      await handleDelivery({
-        messageText: "oui",
-        msg: msgStub("oui", "messy-oui"),
-        group: null,
-        agencyId: null,
-        linkedClient,
-        client: {},
-        config: baseConfig(),
-        whatsappGroupId,
-      });
       expect(coreApi.createTransaction).toHaveBeenCalledTimes(1);
       expect(coreApi.createTransaction).toHaveBeenCalledWith(
         "kc-1",
@@ -609,14 +610,53 @@ describe("deliveryHandler handleDelivery (core mode)", () => {
         "messy-1",
         expect.any(Object)
       );
+      expect(
+        pendingDeliveryConfirm.getPending(whatsappGroupId, "1855@lid")
+      ).toBeNull();
+    });
+
+    it("high-confidence AI with amount 0 creates immediately (rien à encaisser)", async () => {
+      const messy =
+        "Bonjour commande\nTel 699000111\n2 robes pour cliente\n0 f\nvers Akwa merci";
+      extractDeliveryWithAI.mockResolvedValue({ ok: true, raw: {} });
+      validateAndNormalizeAiDelivery.mockReturnValue({
+        phone: "699000111",
+        items: "2 robes",
+        amount_due: 0,
+        quartier: "akwa",
+      });
+
+      await handleDelivery({
+        messageText: messy,
+        msg: msgStub(messy, "zero-amt-1"),
+        group: null,
+        agencyId: null,
+        linkedClient,
+        client: {},
+        config: baseConfig(),
+        whatsappGroupId,
+      });
+
+      expect(extractDeliveryWithAI).toHaveBeenCalled();
+      expect(coreApi.createTransaction).toHaveBeenCalledTimes(1);
+      expect(coreApi.createTransaction).toHaveBeenCalledWith(
+        "kc-1",
+        expect.objectContaining({ phone: "699000111", amount_due: 0 }),
+        messy,
+        "zero-amt-1",
+        expect.any(Object)
+      );
+      expect(
+        pendingDeliveryConfirm.getPending(whatsappGroupId, "1855@lid")
+      ).toBeNull();
     });
   });
 });
 
 describe("duplicateOrderReplyText", () => {
-  it("is short and tells the vendor not to resend", () => {
+  it("tells the vendor they already sent this order", () => {
     expect(duplicateOrderReplyText("145")).toBe(
-      "✅ Commande #145 déjà sur le dashboard.\n\nVérifiez-la, ne renvoyez pas le même message."
+      "Vous avez déjà envoyé cette commande (#145). Vérifiez-la."
     );
   });
 });
